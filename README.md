@@ -112,6 +112,18 @@ Not-so-minor modifications to Klippy's core were made to accommodate these featu
 
 Pull requests are very welcome over here, and will be merged quickly.
 
+### Testing
+
+I've added some notes on running the tests from the [tests](./test) directory. Have a look at the [README](./test/README.md) there.
+
+The tests are currently focused on the new features added by this fork.
+
+Relevant configuration and test definition files are:
+
+- [k4cnc.cfg](./test/klippy/k4cnc.cfg)
+- [k4cnc.test](./test/klippy/k4cnc.test)
+- [atmega644p.dict](./test/dicts/atmega644p.dict)
+
 ### Buy me a beer
 
 Show your love for this project through Liberapay: <https://liberapay.com/naikymen> <3
