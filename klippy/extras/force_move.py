@@ -139,7 +139,7 @@ class ForceMove:
         curpos = toolhead.get_position()
 
         # Iterate over the names and indices of the axes in the main toolhead.
-        homing_axes = []
+        homing_axes = ""
         for axis_idx, axis_name in enumerate(list(toolhead.axis_map)):
             # Try to find a value.
             value = gcmd.get_float(axis_name, None)
@@ -157,8 +157,8 @@ class ForceMove:
         clear = gcmd.get('CLEAR', '').upper()
         for axes in toolhead.axis_triplets:
             # Iterate over axis sets (XYZ, ABC, etc.).
-            clear_axes = [a for a in axes if a in clear]
-            toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes.lower())
+            clear_axes = ''.join([a.lower() for a in axes if a in clear])
+            toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes)
 
 def load_config(config):
     return ForceMove(config)
