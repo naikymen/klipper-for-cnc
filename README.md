@@ -316,6 +316,10 @@ For example, this means that:
 - `[probe_G38_multi extruder]` will be associated to the main `[extruder]`.
 - `[probe_G38_multi]` sections with names that do not match an extruder will only be usable through the `MULTIPROBE` set of commands.
 
+Example command (equivalent to G38.2): `MULTIPROBE2 PROBE_NAME=extruder1 Z=-20 F=1`
+
+To use a different G38 flavor, replace the `2` in `MULTIPROBE2` with `3`, `4`, or `5` for the other probing modes.
+
 Example configuration:
 
 ```yaml

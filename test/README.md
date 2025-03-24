@@ -112,3 +112,63 @@ There may be a compatibility issue with greenlet version 2.
 # pip install cffi pyserial greenlet Jinja2 python-can markupsafe
 pip install cffi pyserial greenlet
 ```
+
+# Available pins on the atmega644p
+
+Here are all the available pin names for the ATmega644P microcontroller:
+
+**Port A (PA)**:
+
+- PA0 (ADC0/PCINT0)
+- PA1 (ADC1/PCINT1)
+- PA2 (ADC2/PCINT2)
+- PA3 (ADC3/PCINT3)
+- PA4 (ADC4/PCINT4)
+- PA5 (ADC5/PCINT5)
+- PA6 (ADC6/PCINT6)
+- PA7 (ADC7/PCINT7)
+
+**Port B (PB)**:
+
+- PB0 (PCINT8/XCK0/T0)
+- PB1 (PCINT9/CLKO/T1)
+- PB2 (PCINT10/INT2/AIN0)
+- PB3 (PCINT11/OC0A/AIN1)
+- PB4 (PCINT12/OC0B/SS)
+- PB5 (PCINT13/MOSI)
+- PB6 (PCINT14/MISO)
+- PB7 (PCINT15/SCK)
+
+**Port C (PC)**:
+
+- PC0 (SCL/PCINT16)
+- PC1 (SDA/PCINT17)
+- PC2 (TCK/PCINT18)
+- PC3 (TMS/PCINT19)
+- PC4 (TDO/PCINT20)
+- PC5 (TDI/PCINT21)
+- PC6 (TOSC1/PCINT22)
+- PC7 (TOSC2/PCINT23)
+
+**Port D (PD)**:
+
+- PD0 (PCINT24/RXD0)
+- PD1 (PCINT25/TXD0)
+- PD2 (PCINT26/INT0)
+- PD3 (PCINT27/INT1)
+- PD4 (PCINT28/OC1B)
+- PD5 (PCINT29/OC1A)
+- PD6 (PCINT30/OC2B/ICP)
+- PD7 (PCINT31/OC2A)
+
+**Other Pins**:
+
+- RESET
+- VCC
+- GND
+- XTAL1
+- XTAL2
+- AVCC
+- AREF
+
+This is the complete list of pin names based on the ATmega644P datasheet. Let me know if you need more details!

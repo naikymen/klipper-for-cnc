@@ -10,12 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..klippy import Printer
-    from ..kinematics import PrinterExtruder, ExtruderStepper
     from ..configfile import ConfigWrapper
     from ..toolhead import ToolHead
-    from ..gcode import GCodeDispatch, GCodeCommand
-    from .homing import PrinterHoming
-    from .gcode_move import GCodeMove
 # pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name,line-too-long,consider-using-f-string
 # pylint: disable=logging-fstring-interpolation,logging-not-lazy,fixme
 
@@ -115,7 +111,7 @@ class ProbeG38multi(ProbeG38):
         This is used to default to the active extruder for regular G38 commands.
         """
         # Get the extruder name.
-        toolhead = self.printer.lookup_object('toolhead')
+        toolhead: ToolHead = self.printer.lookup_object('toolhead')
         extruder_name = toolhead.extruder.name
 
         # If no extruder is configured, the name will be a None value,
@@ -165,7 +161,7 @@ class ProbeCommandHelperMux(ProbeCommandHelper):
     to distinguish them from the 'regular' probe commands.
     """
     def __init__(self, config, probe: PrinterProbeG38Mux, query_endstop=None):
-        self.printer = config.get_printer()
+        self.printer: Printer = config.get_printer()
         self.probe = probe
         self.query_endstop = query_endstop
         self.name = config.get_name()
@@ -211,7 +207,7 @@ class PrinterProbeG38Mux(PrinterProbe):
     Using ProbeEndstopWrapperG38 and ProbeCommandHelperMux instead.
     """
     def __init__(self, config: ConfigWrapper, mcu_probe_name='probe'):
-        self.printer = config.get_printer()
+        self.printer: Printer = config.get_printer()
         self.mcu_probe_name = mcu_probe_name
         self.mcu_probe = ProbeEndstopWrapperG38(config, mcu_probe_name)
         self.cmd_helper = ProbeCommandHelperMux(config, self,

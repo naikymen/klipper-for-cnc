@@ -385,14 +385,34 @@ class HomingMove:
 
         return halt_kin_spos
 
-    def check_no_movement(self, axes=None):
+    def check_no_movement(self, axes: list[str] | None = None):
         """
-        axes: list of the axes moving in a G38 probing move (x, y, z, extruder/extruder1). See "probe_axes".
+        Check that no movement occurred during the homing move.
+
+        It is meant to detect when the printer has probed without moving at all,
+        which can happen when the printer is already in the trigger position,
+        or if an endstop is stuck.
+        
+        If the check fails, the homing move is stopped and an error is raised.
+        
+        Args:
+            axes: list[str] | None = None
+                List of the axes moving in a G38 probing move (x, y, z, extruder/extruder1).
+                See "probe_axes". If specified, only the axes in the list are checked.
+                Otherwise, all axes are checked.
+
+        Example:
+            >>> # Check that the X and Y axes moved during the homing move
+            >>> self.homing.check_no_movement(axes=["x", "y"])
+            >>> self.homing.check_no_movement(axes=["extruder1"])
+        
+        Returns:
+            str: The name of the first endstop that failed the check.
         """
+        logging.info(f"check_no_movement with axes={axes}")
+
         if self.printer.get_start_args().get('debuginput') is not None:
             return None
-
-        logging.info(f"check_no_movement with axes={axes}")
 
         # NOTE: from the StepperPosition class:
         #       -   self.start_pos = stepper.get_mcu_position()
@@ -405,7 +425,7 @@ class HomingMove:
 
                 # NOTE: default behaviour, consider all steppers.
                 if axes is None:
-                    logging.info(f"check_no_movement matched stepper with default behaviour: {sp_name}")
+                    logging.info(f"check_no_movement matched stepper with default behaviour: {sp_name} (no axis filter)")
                     return sp.endstop_name
 
                 # NOTE: This is the "G38" behaviour.

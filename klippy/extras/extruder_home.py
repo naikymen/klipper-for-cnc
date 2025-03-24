@@ -195,6 +195,10 @@ class ExtruderHoming:
         self.homing_info = self.rail.get_homing_info()
         speed = self.homing_info.speed
 
+        # TODO: Enable and test SPEED parameter for extruder homing.
+        # Use the speed passed by the user if provided, or the default speed if not.
+        #speed = gcmd.get_float('SPEED', speed, above=0.0)
+
         # NOTE: Use XYZ from the toolhead, and E from the config file + estimation.
         pos = self.th_orig_pos[:-1] + [self.get_movepos(self.homing_info)]
 
