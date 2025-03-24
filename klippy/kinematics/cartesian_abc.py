@@ -273,10 +273,11 @@ class CartKinematicsABC(CartKinematics):
             logging.info(f"CartKinematicsABC: setting limits={rail.get_range()} on stepper: {rail.get_name()}")
             self.limits[axis] = rail.get_range()
 
-    def note_z_not_homed(self):
-        if "Z" in self.axis_names:
-            # Helper for Safe Z Home
-            self.limits[self.axis_map["Z"]] = (1.0, -1.0)
+    # TODO: MERGE
+    def clear_homing_state(self, axes):
+        for i, _ in enumerate(self.limits):
+            if i in axes:
+                self.limits[i] = (1.0, -1.0)
 
     def home_axis(self, homing_state: Homing, axis, rail):
         # Determine movement

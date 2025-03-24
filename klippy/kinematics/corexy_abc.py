@@ -176,13 +176,11 @@ class CoreXYKinematicsABC:
             if i in homing_axes:
                 self.limits[i] = rail.get_range()
     
-    def note_z_not_homed(self):
-        # Helper for Safe Z Home
-        # NOTE: This will surely not cause a crash, since for now I'd
-        #       require a CoreXY Kinematic to be setup with a Z axis.
-        if "Z" in self.axis_names:
-            # Helper for Safe Z Home
-            self.limits[self.axis_map["Z"]] = (1.0, -1.0)
+    # TODO: MERGE
+    def clear_homing_state(self, axes):
+        for i, _ in enumerate(self.limits):
+            if i in axes:
+                self.limits[i] = (1.0, -1.0)
 
     def home(self, homing_state):
         # Each axis is homed independently and in order
