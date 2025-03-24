@@ -145,7 +145,7 @@ class CartKinematicsABC(CartKinematics):
         # Check for dual carriage support
         if config.has_section('dual_carriage'):
             dc_config = config.getsection('dual_carriage')
-            dc_axis = dc_config.getchoice('axis', {'x': 'x', 'y': 'y'})
+            dc_axis = dc_config.getchoice('axis', ['x', 'y'])
             self.dual_carriage_axis = {'x': 0, 'y': 1}[dc_axis]
             # setup second dual carriage rail
             self.rails.append(stepper.LookupMultiRail(dc_config))
@@ -252,7 +252,9 @@ class CartKinematicsABC(CartKinematics):
             rail.set_position(newpos)
 
         # NOTE: Set limits if the axis is (being) homed.
-        for axis in homing_axes:
+        for axis_name in homing_axes:
+            # TODO: MERGE - string axes in homing_axes.
+            axis = "xyz".index(axis_name)
             # Get the proper rail for the "dual-carriage" case.
             if self.dc_module and axis == self.dc_module.axis:
                 rail = self.dc_module.get_primary_rail().get_rail()
