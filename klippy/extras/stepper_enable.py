@@ -95,7 +95,7 @@ class PrinterStepperEnable:
         for el in self.enable_lines.values():
             el.motor_disable(print_time)
         # NOTE: Iterate over kinematics.
-        for kin in self.kinematics.values():
+        for kin in toolhead.kinematics.values():
             kin.clear_homing_state(kin.axis_names.lower())
         self.printer.send_event("stepper_enable:motor_off", print_time)
         toolhead.dwell(DISABLE_STALL_TIME)

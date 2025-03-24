@@ -460,6 +460,7 @@ class ToolHead:
 
         # Dictionary to map axes to their indexes in the position vector "self.commanded_pos".
         self.axis_map = {a: i for i, a in enumerate(list(self.ax_letters)[:self.min_axes] + ["E"])}
+        self.axis_map_rev = {i: a for a, i in self.axis_map.items()}
         # Full set of configured axes indexes, including the extruder.
         self.axis_config = [self.axis_map[x] for x in (self.axis_names + "E")]
         msg = f"ToolHead: setup axis_map to '{self.axis_map}' and axis_config to '{self.axis_config}'."
@@ -1055,7 +1056,7 @@ class ToolHead:
         """
         return [self.axis_map[a] for a in axes]
 
-    def axes_to_names(self, axes: list[int]):
+    def axes_to_names(self, axes: list[int]) -> list[str]:
         """Converts a list of integer axis IDs to their corresponding letter.
 
         Args:
@@ -1064,7 +1065,7 @@ class ToolHead:
         Returns:
             list: A list of the corresponding axis letters.
         """
-        return [self.axes_letters[i] for i in axes]
+        return [self.axis_map_rev[i] for i in axes]
 
     def update_axes(self, pos: list, **kwargs):
         """Update values in a position vector by axis letter ID.

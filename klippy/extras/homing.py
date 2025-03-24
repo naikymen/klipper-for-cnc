@@ -438,9 +438,9 @@ class Homing:
         self.changed_axes = []
         self.trigger_mcu_pos = {}
         self.adjust_pos = {}
-    def set_axes(self, axes: str):
+    def set_axes(self, axes: list[int]):
         self.changed_axes = axes
-    def get_axes(self) -> str:
+    def get_axes(self) -> list[int]:
         return self.changed_axes
     def get_trigger_position(self, stepper_name):
         return self.trigger_mcu_pos[stepper_name]
@@ -705,7 +705,8 @@ class PrinterHoming:
 
         # NOTE: Update the "self.changed_axes" attribute, to indicate
         #       which axes will be homed (e.g. 0 for X, 1 for Y, ...).
-        homing_state.set_axes(homing_axes)
+        xyz_homing_axes = [toolhead.axis_map[a] for a in homing_axes]
+        homing_state.set_axes(xyz_homing_axes)
 
         # NOTE: Let the "kinematics" object decide how to home the requested axes.
         try:

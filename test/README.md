@@ -29,8 +29,12 @@ make  # Compile the microcontroller code, generating the dictionary file.
 2. Run the tests:
 
 ```bash
-python scripts/test_klippy.py test/klippy/k4cnc.test
+rm _test* || clear && python scripts/test_klippy.py test/klippy/k4cnc.test -d test/dicts
 ```
+
+> **NOTE**: It is really important to remove the test output files before running the tests,
+> because the script appends the output to the files, and does not clear them when the test
+> fails (which is usually the case when working...).
 
 3. Translate the output to readable text (optional):
 
@@ -85,3 +89,20 @@ python ../klippy/klippy.py test/klippy/k4cnc.test -o test.serial -v -d atmega256
 ```
 
 The `-v` option is particularly useful for debugging as it enables debug messages, providing more detailed output during test execution.
+
+## Dependencies
+
+```bash
+python3 -m venv klippy-env && \
+source klippy-env/bin/activate && \
+cd klipper && \
+pip install -r scripts/klippy-requirements.txt
+```
+
+If the above fails, you can try installing the "latest" versions of each package.
+There may be a compatibility issue with greenlet version 2.
+
+```bash
+# pip install cffi pyserial greenlet Jinja2 python-can markupsafe
+pip install cffi pyserial greenlet
+```

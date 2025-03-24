@@ -288,7 +288,7 @@ class CartKinematicsABC(CartKinematics):
             if axis_name.lower() in clear_axes:
                 self.limits[axis] = (1.0, -1.0)
 
-    def home_axis(self, homing_state: Homing, axis, rail):
+    def home_axis(self, homing_state: Homing, axis: int, rail):
         # Determine movement
         position_min, position_max = rail.get_range()
         hi = rail.get_homing_info()
@@ -307,13 +307,12 @@ class CartKinematicsABC(CartKinematics):
         # NOTE: "homing_state" is an instance of the "Homing" class.
         logging.info(f"cartesian_abc.home: homing axis changed_axes={homing_state.changed_axes}")
         # Each axis is homed independently and in order
-        toolhead = self.printer.lookup_object('toolhead')
         for axis in homing_state.get_axes():
             # TODO: WARNING support for dual carriage untested.
             if self.dc_module is not None and axis == self.dual_carriage_axis:
                 self.dc_module.home(homing_state)
             else:
-                self.home_axis(homing_state, axis, self.rails[toolhead.abc_axes_to_xyz(axis)])
+                self.home_axis(homing_state, axis, self.rails[axis])
 
     def _check_endstops(self, move):
         logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")
