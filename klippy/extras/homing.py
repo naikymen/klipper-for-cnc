@@ -1,6 +1,6 @@
 # Helper code for implementing homing operations
 #
-# Copyright (C) 2016-2021  Kevin O'Connor <kevin@koconnor.net>
+# Copyright (C) 2016-2024  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
@@ -43,6 +43,7 @@ class StepperPosition:
         self.endstop_name = endstop_name
         self.stepper_name = stepper.get_name()
         self.start_pos = stepper.get_mcu_position()
+        self.start_cmd_pos = stepper.mcu_to_commanded_position(self.start_pos)
         self.halt_pos = self.trig_pos = None
         logging.info(f"homing.StepperPosition: add stepper {self.stepper_name} to endstop {self.endstop_name}")
     def note_home_end(self, trigger_time):
@@ -53,6 +54,12 @@ class StepperPosition:
         # NOTE: uses "stepcompress_find_past_position" to:
         #       "Search history of moves to find a past position at a given clock"
         self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
+    def verify_no_probe_skew(self, haltpos):
+        new_start_pos = self.stepper.get_mcu_position(self.start_cmd_pos)
+        if new_start_pos != self.start_pos:
+            logging.warning(
+                "Stepper '%s' position skew after probe: pos %d now %d",
+                self.stepper.get_name(), self.start_pos, new_start_pos)
 
 # Implementation of homing/probing moves
 class HomingMove:
@@ -300,8 +307,10 @@ class HomingMove:
             haltpos = trigpos = self.calc_toolhead_pos(kin_spos=kin_spos,
                                                        offsets=trig_steps)
             if trig_steps != halt_steps:
-                haltpos = self.calc_toolhead_pos(kin_spos=kin_spos,
-                                                 offsets=halt_steps)
+                haltpos = self.calc_toolhead_pos(kin_spos, halt_steps)
+            self.toolhead.set_position(haltpos)
+            for sp in self.stepper_positions:
+                sp.verify_no_probe_skew(haltpos)
         else:
             haltpos = trigpos = movepos
             # NOTE: calculate "oversteps" after triggering, for each
@@ -324,14 +333,14 @@ class HomingMove:
                 haltpos = self.calc_toolhead_pos(kin_spos=halt_kin_spos,
                                                  offsets=over_steps)
 
-        # NOTE: set the toolhead position to the (corrected) halting position.
-        # NOTE: for extruder_home this could be:
-        #           set_position: input=[-1.420625, 0.0, 0.0, 0.0] homing_axes=()
-        #       The fourt element comes from "newpos_e" in the call to
-        #       "toolhead.set_position" above. The first element is the corrected
-        #       "halt" position.
-        logging.info("homing.homing_move: setting position.")
-        self.toolhead.set_position(haltpos)
+                # NOTE: set the toolhead position to the (corrected) halting position.
+                # NOTE: for extruder_home this could be:
+                #           set_position: input=[-1.420625, 0.0, 0.0, 0.0] homing_axes=()
+                #       The fourt element comes from "newpos_e" in the call to
+                #       "toolhead.set_position" above. The first element is the corrected
+                #       "halt" position.
+                logging.info("homing.homing_move: setting position.")
+                self.toolhead.set_position(haltpos)
 
         # Signal homing/probing move complete
         try:
@@ -471,10 +480,12 @@ class Homing:
 
         # Alter kinematics class to think printer is at forcepos
         # NOTE: Get the axis IDs of each non-null axis in forcepos.
-        homing_axes = [axis for axis in range(self.toolhead.pos_length-1) if forcepos[axis] is not None]
+        force_axes = [axis for axis in range(self.toolhead.pos_length-1) if forcepos[axis] is not None]
         # NOTE: fill each "None" position values with the
         #       current position (from toolhead.get_position)
         #       of the corresponding axis.
+        # TODO: MERGE
+        homing_axes = "".join(["xyz"[i] for i in force_axes])
         startpos = self._fill_coord(forcepos)
         homepos = self._fill_coord(movepos)
         # NOTE: esto usa "trapq_set_position" sobre el trapq del XYZ.
@@ -555,7 +566,7 @@ class Homing:
                 # NOTE: Build the "newpos" list with elements from each kinematic.
                 newpos.extend(kin.calc_position(kin_spos))
 
-            for axis in homing_axes:
+            for axis in force_axes:
                 homepos[axis] = newpos[axis]
             self.toolhead.set_position(homepos)
 
