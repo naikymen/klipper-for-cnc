@@ -1,5 +1,5 @@
 # K4CNC tests
-DICTIONARY atmega2560.dict
+DICTIONARY atmega644p.dict
 CONFIG k4cnc.cfg
 
 # Home and XYZ moves

@@ -87,6 +87,9 @@ class CartKinematicsABC(CartKinematics):
         self.dummy_axes = list(set(self.axis).difference(self.axis_config))
         # Get the axis names of these "Dummy axes".
         self.dummy_axes_names = ["XYZABCUVW"[i] for i in self.dummy_axes]
+
+        # Save the toolhead
+        self.toolhead = toolhead
         
         # Total axis count from the toolhead.
         self.toolhead_axis_count = toolhead.axis_count  # len(self.axis_names)
@@ -312,7 +315,8 @@ class CartKinematicsABC(CartKinematics):
             if self.dc_module is not None and axis == self.dual_carriage_axis:
                 self.dc_module.home(homing_state)
             else:
-                self.home_axis(homing_state, axis, self.rails[axis])
+                axis_xyz = self.toolhead.abc_axes_to_xyz(axis)
+                self.home_axis(homing_state, axis_xyz, self.rails[axis_xyz])
 
     def _check_endstops(self, move):
         logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")
