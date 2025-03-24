@@ -430,8 +430,14 @@ class ToolHead:
     """
     def __init__(self, config: ConfigWrapper):
         # NOTE: amount of non-extruder axes: XYZ=3, XYZABC=6.
-        self.axis_names = config.get('axis', 'XYZ')  # e.g. "XYZ", "XYZABC", "XY".
+        self.axis_names = config.get('axis', 'XYZ').upper()  # e.g. "XYZ", "XYZABC", "XY".
         self.axis_count = len(self.axis_names)
+
+        # Check for extruder axis in axis names.
+        if "E" in self.axis_names:
+            msg = f"ToolHead config error: axis 'E' is not allowed in config (it is automatically enabled)."
+            logging.exception(msg)
+            raise config.error(msg)
 
         # Axis sets and names for them are partially hardcoded all around.
         self.axis_triplets = ["XYZ", "ABC"]  # TODO: generalize the code to support "UVW" axes.
@@ -1004,8 +1010,7 @@ class ToolHead:
             self.printer.invoke_shutdown("Exception in flush_handler")
         return self.reactor.NEVER
 
-    # Movement commands
-    # TODO: MERGE
+    # Utilities
     def make_pos_vector_by_axis(self, coords:list, axis_names:str, base_value=None):
         indexes = self.get_axes_idxs(axis_names)
         return self.make_pos_vector(coords, indexes, base_value=base_value)
@@ -1019,6 +1024,7 @@ class ToolHead:
             base_vector[i] = new_coords[i]
         return base_vector
 
+    # Movement commands
     def get_position(self, axes:str=None):
         """Returns the position vector of the toolhead.
         Args:
@@ -1038,14 +1044,39 @@ class ToolHead:
         return [pos[self.axis_map[a]] for a in axes]
 
     def get_axes_idxs(self, axes: str):
+        """
+        Returns a list of the axes indexes given a string of axes letters.
+
+        Args:
+            axes (str): A string indicating which axes to return (e.g. "XYE" for X, Y and E). Defaults to None.
+
+        Returns:
+            list: A list of the axes indexes.
+        """
         return [self.axis_map[a] for a in axes]
+
+    def axes_to_names(self, axes: list[int]):
+        """Converts a list of integer axis IDs to their corresponding letter.
+
+        Args:
+            axes (list): A list of integer axis IDs.
+
+        Returns:
+            list: A list of the corresponding axis letters.
+        """
+        return [self.axes_letters[i] for i in axes]
 
     def update_axes(self, pos: list, **kwargs):
         """Update values in a position vector by axis letter ID.
 
         Args:
             pos (list): Toolhead-like position vector.
-            kwargs: Pairs of axis letters and values (e.g. X=1, Z=3) which will be updated.
+            kwargs: Pairs of axis letters and values (e.g. x=1, y=3) which will be updated.
+        
+        Examples:
+            >>> pos = [0, 0, 0, 0, 0, 0]
+            >>> self.update_axes(pos, x=1, y=3)
+            [1, 3, 0, 0, 0, 0]
         """
         pos = pos.copy()
         for k, v in kwargs.items():
@@ -1055,14 +1086,18 @@ class ToolHead:
             pos[a] = v
         return pos
 
-    def axes_to_xyz(self, axes):
-        """Convert ABC axis IDs to XYZ IDs (i.e. 3,4,5 to 0,1,2).
+    def abc_axes_to_xyz(self, axes: int | list[int]):
+        """Convert XYZABC-based axis IDs to XYZ-based IDs (i.e. 3,4,5 to 0,1,2).
 
-        Has no effect on XYZ IDs
+        If axes is an int, it is converted directly.
+        If axes is a list or tuple, the function is applied element-wise.
+
+        Args:
+            axes (int or list): The axis ID(s) to convert
         """
-        logging.info(f"toolhead.axes_to_xyz: input={axes}")
+        logging.info(f"toolhead.abc_axes_to_xyz: input={axes}")
 
-        xyz_ids = [0, 1, 2, 0, 1, 2]
+        xyz_ids = [0, 1, 2] * len(self.axis_triplets)
 
         try:
             if isinstance(axes, list) or isinstance(axes, tuple):
@@ -1070,60 +1105,89 @@ class ToolHead:
             else:
                 result = xyz_ids[axes]
         except:
-            raise Exception(f"toolhead.axes_to_xyz: error with input={axes}")
+            raise Exception(f"toolhead.abc_axes_to_xyz: error with input={axes}")
 
-        logging.info(f"toolhead.axes_to_xyz: output={result}")
+        logging.info(f"toolhead.abc_axes_to_xyz: output={result}")
 
         return result
 
-    def get_elements(self, toolhead_pos, axes):
+    def get_elements(self, toolhead_pos: list, axes: list[int]):
+        """
+        Returns a list of the elements of a toolhead position vector given a list of axis IDs.
+
+        Args:
+            toolhead_pos (list): A toolhead position vector
+            axes (list): A list of axis IDs
+
+        Returns:
+            list: A list of the elements of the toolhead position vector corresponding to the given axis IDs
+        """
         return [toolhead_pos[axis] for axis in axes]
 
     def make_coords(self, default=None, **kwargs):
-        coords = [default for i in range(self.pos_length)]
+        """
+        Returns a list of coordinates with default values, updated with values from kwargs.
+
+        Args:
+            default (any, optional): Default value for coordinates. Defaults to None.
+            **kwargs: Keyword arguments where keys are axis letters and values are coordinate values.
+
+        Returns:
+            list: A list of coordinates with default values, updated with values from kwargs.
+
+        Example:
+            >>> toolhead.make_coords(x=1, y=2)
+            [1, 2, None, None, None, None]
+        """
+        coords = [default] * self.pos_length
         for k, v in kwargs.items():
             coords[self.axis_map[k]] = v
         return coords
 
     def set_position(self, newpos, homing_axes=""):
-        logging.info(f"toolhead.set_position: setting newpos={newpos} and homing_axes={homing_axes}")
+        logging.info(f"set_position (toolhead): setting newpos={newpos} and homing_axes={homing_axes}")
         self.flush_step_generation()
+
+        # Force lower case.
+        homing_axes = homing_axes.lower()
 
         # NOTE: Set the position of the axes "trapq".
         for axes in list(self.kinematics):
             # Iterate over["XYZ", "ABC"]
-            logging.info(f"toolhead.set_position: setting {axes} trapq position.")
+            logging.info(f"set_position (toolhead): setting {axes} trapq position.")
             kin = self.kinematics[axes]
             # Skip this for 'none' kinematics.
             if kin.axis_names == "":
                 # TODO: De-hardcode this.
-                logging.info(f"toolhead.set_position: skipping {axes} trapq position for 'none' kinmatics.")
+                logging.info(f"set_position (toolhead): skipping {axes} trapq position for 'none' kinmatics.")
                 continue
             # Filter the axis IDs according to the current kinematic
             new_kin_pos = self.get_elements(newpos, kin.axis)
-            logging.info(f"toolhead.set_position: using newpos={new_kin_pos}")
+            logging.info(f"set_position (toolhead): using newpos={new_kin_pos}")
             self.set_kin_trap_position(kin.trapq, new_kin_pos)
 
         # NOTE: Also set the position of the extruder's "trapq".
         #       Runs "trapq_set_position" and "rail.set_position".
-        logging.info("toolhead.set_position: setting E trapq pos.")
+        logging.info("set_position (toolhead): setting E trapq pos.")
         self.set_position_e(newpos_e=newpos[-1], homing_axes=homing_axes)
 
         # NOTE: Set the position of the axes "kinematics".
         for axes in list(self.kinematics):
             # Iterate over["XYZ", "ABC"]
-            logging.info(f"toolhead.set_position: setting {axes} kinematic position.")
+            logging.info(f"set_position (toolhead): setting {axes} kinematic position.")
             kin = self.kinematics[axes]
             # Skip this for 'none' kinematics.
             if kin.axis_names == "":
                 # TODO: De-hardcode this.
-                logging.info(f"toolhead.set_position: skipping {axes} kinematic position for 'none' kinmatics.")
+                logging.info(f"set_position (toolhead): skipping {axes} kinematic position for 'none' kinmatics.")
                 continue
-            # Filter the axis IDs according to the current kinematic, and convert them to the "0,1,2" range.
-            kin_homing_axes = self.axes_to_xyz([axis for axis in homing_axes if axis in kin.axis])
+            # Filter the axis IDs according to the current kinematic.
+            kin_homing_axes = [axis for axis in homing_axes if axis in kin.axis_names.lower()]
+            # Get the elements from newpos corresponding to the kinematic axis IDs.
             new_kin_pos = self.get_elements(newpos, kin.axis)
-            logging.info(f"toolhead.set_position: using newpos={new_kin_pos} and kin_homing_axes={kin_homing_axes}")
-            self.set_kinematics_position(kin=kin, newpos=new_kin_pos, homing_axes=tuple(kin_homing_axes))
+            # Set the kinematics position.
+            logging.info(f"set_position (toolhead): using newpos={new_kin_pos} and kin_homing_axes={kin_homing_axes}")
+            self.set_kinematics_position(kin=kin, newpos=new_kin_pos, homing_axes=kin_homing_axes)
 
         # NOTE: "set_position_e" was inserted above and not after
         #       updating "commanded_pos" under the suspicion that
@@ -1145,34 +1209,32 @@ class ToolHead:
 
         if trapq is not None:
             # NOTE: Set the position of the toolhead's "trapq".
-            logging.info(f"toolhead.set_kin_trap_position: setting trapq pos to newpos={newpos}")
+            logging.info(f"set_kin_trap_position: setting trapq pos to newpos={newpos}")
             ffi_main, ffi_lib = chelper.get_ffi()
             ffi_lib.trapq_set_position(self.trapq, self.print_time,
                                        newpos[0], newpos[1], newpos[2])
         else:
-            logging.info(f"toolhead.set_kin_trap_position: trapq was None, skipped setting to newpos={newpos}")
+            logging.warning(f"set_kin_trap_position: trapq was None, skipped setting to newpos={newpos}")
 
-    def set_kinematics_position(self, kin, newpos, homing_axes):
+    def set_kinematics_position(self, kin, newpos, homing_axes: str):
         """Abstraction of kin.set_position for different sets of kinematics.
 
         Args:
             kin (kinematics): Instance of a (cartesian) kinematics class.
             newpos (list): 3-element list with the new positions for the kinematics.
-            homing_axes (tuple): 3-element tuple indicating the axes that should have their limits re-applied.
+            homing_axes (str): String indicating the axes that should have their limits re-applied.
         """
-        # NOTE: The "homing_axes" argument is a tuple similar to
-        #       "(0,1,2)" (see SET_KINEMATIC_POSITION at "force_move.py"),
-        #       used to set axis limits by the (cartesian) kinematics.
+        # NOTE: The "homing_axes" argument is used to set axis limits by the (cartesian) kinematics.
         # NOTE: Calls "rail.set_position" on each stepper which in turn
         #       calls "itersolve_set_position" from "itersolve.c".
         # NOTE: Passing only the first three elements (XYZ) to this set_position.
         if kin is not None:
-            logging.info(f"toolhead.set_kinematics_position: setting kinematic position with newpos={newpos} and homing_axes={homing_axes}")
-            kin.set_position(newpos, homing_axes=tuple(homing_axes))
+            logging.info(f"set_kinematics_position: setting kinematic position with newpos={newpos} and homing_axes={homing_axes}")
+            kin.set_position(newpos, homing_axes=homing_axes)
         else:
-            logging.info(f"toolhead.set_kinematics_position: kin was None, skipped setting to newpos={newpos} and homing_axes={homing_axes}")
+            logging.warning(f"set_kinematics_position: kin was None, skipped setting to newpos={newpos} and homing_axes={homing_axes}")
 
-    def set_position_e(self, newpos_e, homing_axes=()):
+    def set_position_e(self, newpos_e, homing_axes=""):
         """Extruder version of set_position."""
         logging.info(f"toolhead.set_position_e: setting E to newpos={newpos_e}.")
 
@@ -1186,7 +1248,6 @@ class ToolHead:
             # NOTE: Let the "extruder kinematic" set its position. This will call
             #       set position on the "trapq" and "rail" objects of the
             #       active ExtruderStepper class
-            # TODO: the "homing_axes" parameter is not used rait nau.
             extruder.set_position(newpos_e, homing_axes, self.print_time)
     def limit_next_junction_speed(self, speed):
         last_move = self.lookahead.get_last()

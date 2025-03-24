@@ -25,9 +25,7 @@ class GCodeMove:
       - The "checks" still have the XYZ logic.
       - Homing is not implemented for ABC.
     """
-    def __init__(self, config, toolhead_id="toolhead"):
-        self.toolhead_id = toolhead_id
-
+    def __init__(self, config):
         # NOTE: amount of non-extruder axes: XYZ=3, XYZABC=6.
         # TODO: cmd_M114 only supports 3 or 6 for now.
         # TODO: find a way to get the axis value from the config, this does not work.
@@ -129,7 +127,7 @@ class GCodeMove:
     def _handle_ready(self):
         self.is_printer_ready = True
         if self.move_transform is None:
-            toolhead = self.printer.lookup_object(self.toolhead_id)
+            toolhead = self.printer.lookup_object('toolhead')
             self.move_with_transform = toolhead.move
             self.position_with_transform = toolhead.get_position
         self.reset_last_position()
@@ -183,7 +181,7 @@ class GCodeMove:
                 "G-Code move transform already specified")
         old_transform = self.move_transform
         if old_transform is None:
-            old_transform = self.printer.lookup_object(self.toolhead_id, None)
+            old_transform = self.printer.lookup_object('toolhead', None)
         self.move_transform = transform
         self.move_with_transform = transform.move
         self.position_with_transform = transform.get_position
@@ -215,9 +213,8 @@ class GCodeMove:
         }
 
     def reset_last_position(self):
-        # NOTE: Handler for "toolhead:set_position" and other events,
-        #       sent at least by "toolhead.set_position" and also
-        #       called by "_handle_activate_extruder" (and other methods).
+        # NOTE: Handler for "toolhead:set_position" and other events.
+        #       Also called by "_handle_activate_extruder" (and other methods).
         logging.info(f"gcode_move.reset_last_position: triggered.")
         if self.is_printer_ready:
             # NOTE: The "" method is actually either "transform.get_position",
@@ -419,7 +416,7 @@ class GCodeMove:
         if self.axis_names != 'XYZ':
             gcmd.respond_info('cmd_GET_POSITION: Partial support for extruder position information. Only XYZABC is complete.')
 
-        toolhead = self.printer.lookup_object(self.toolhead_id, None)
+        toolhead = self.printer.lookup_object('toolhead', None)
 
         if toolhead is None:
             raise gcmd.error("Printer not ready")

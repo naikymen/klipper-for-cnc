@@ -127,7 +127,7 @@ class ResonanceTestExecutor:
     def run_test(self, test_seq, axis, gcmd):
         reactor = self.printer.get_reactor()
         toolhead = self.printer.lookup_object('toolhead')
-        X, Y, Z, E = toolhead.get_position()
+        X, Y, Z, E = toolhead.get_position()  # TODO: ADAPT TO XYZABC.
         # Override maximum acceleration and acceleration to
         # deceleration based on the maximum test frequency
         systime = reactor.monotonic()

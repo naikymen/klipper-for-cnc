@@ -438,9 +438,9 @@ class Homing:
         self.changed_axes = []
         self.trigger_mcu_pos = {}
         self.adjust_pos = {}
-    def set_axes(self, axes):
+    def set_axes(self, axes: str):
         self.changed_axes = axes
-    def get_axes(self):
+    def get_axes(self) -> str:
         return self.changed_axes
     def get_trigger_position(self, stepper_name):
         return self.trigger_mcu_pos[stepper_name]
@@ -484,12 +484,11 @@ class Homing:
         # NOTE: fill each "None" position values with the
         #       current position (from toolhead.get_position)
         #       of the corresponding axis.
-        # TODO: MERGE
-        homing_axes = "".join(["xyz"[i] for i in force_axes])
+        homing_axes = "".join(self.toolhead.axes_to_names(force_axes)).lower()
         startpos = self._fill_coord(forcepos)
         homepos = self._fill_coord(movepos)
         # NOTE: esto usa "trapq_set_position" sobre el trapq del XYZ.
-        # NOTE: homing_axes se usa finalmente en "CartKinematics.set_position",
+        # NOTE: Este "homing_axes" se usa finalmente en "CartKinematics.set_position",
         #       para asignarle limites a los "rails" que se homearon.
         self.toolhead.set_position(startpos, homing_axes=homing_axes)
 
@@ -576,11 +575,6 @@ class PrinterHoming:
     def __init__(self, config):
         self.printer = config.get_printer()
 
-        # Main toolhead object "id". It is used instead of loading the toolhead object,
-        # because it might not be ready at this stage, but we still need the methods below
-        # to be able to grab a different toolhead object when subclassing this elsewhere.
-        self.toolhead_id = 'toolhead'
-
         # Register g-code commands
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command('G28', self.cmd_G28, desc=self.cmd_G28_help)
@@ -652,7 +646,7 @@ class PrinterHoming:
     def cmd_G28(self, gcmd):
         logging.info(f"PrinterHoming.cmd_G28: homing with command={gcmd.get_commandline()}")
 
-        toolhead = self.printer.lookup_object(self.toolhead_id)
+        toolhead = self.printer.lookup_object('toolhead')
         # Move to origin
         axes = []
         # NOTE: Iterate over XYZ... excluding the E axis.
@@ -688,34 +682,30 @@ class PrinterHoming:
             if any(i in kin.axis for i in axes):
                 # NOTE: The "kin.axis" object contains indexes for the axies it handles.
                 #       For example: [0, 1, 2] for XYZ, [3, 4] for AB, etc.
-                homing_axes = [a for a in axes if a in kin.axis]
-                logging.info(f"PrinterHoming.cmd_G28: homing {homing_axes} axes of the {kin.axis} kinematic.")
+                homing_axes = [kin.axis_map_rev[a] for a in axes if a in kin.axis]
+                logging.info(f"PrinterHoming.cmd_G28: homing {homing_axes} axes of the {kin_axes} kinematic (axes: {kin.axis}).")
                 self.home_axes(kin=kin, homing_axes=homing_axes)
 
-    def home_axes(self, kin, homing_axes):
+    def home_axes(self, kin, homing_axes: str):
         """Home the requested axis on the specified kinematics.
 
         Args:
             kin (kinematics): Kinematics class for the axes.
-            homing_axes (list): List of axis, coherced internally to [0,1,2].
+            homing_axes (str): String of axis (e.g. "xyz", "abc").
 
         Raises:
             self.printer.command_error: _description_
         """
-        # NOTE: Convert ABC axis IDs to XYZ IDs (i.e. 3,4,5 to 0,1,2).
-        #       Not useful, adapting "home_rails" would have been complicated.
-        # axes = self.axes_to_xyz(homing_axes)
-        axes = homing_axes
-        logging.info(f"PrinterHoming.home_axes: homing axis={homing_axes} on toolhead={self.toolhead_id}")
+        logging.info(f"PrinterHoming.home_axes: homing axis={homing_axes}")
 
         # NOTE: Instance a "Homing" object, passing it the toolhead of this PrinterHoming instance.
         #       This is important because subclasses of PrinterHoming might be associated to another toolhead.
-        toolhead = self.printer.lookup_object(self.toolhead_id)
+        toolhead = self.printer.lookup_object('toolhead')
         homing_state = Homing(printer=self.printer, toolhead=toolhead)
 
         # NOTE: Update the "self.changed_axes" attribute, to indicate
         #       which axes will be homed (e.g. 0 for X, 1 for Y, ...).
-        homing_state.set_axes(axes)
+        homing_state.set_axes(homing_axes)
 
         # NOTE: Let the "kinematics" object decide how to home the requested axes.
         try:

@@ -211,8 +211,7 @@ class ExtruderHoming:
             # NOTE: pos[-1] is the endstop's position.
             e_startpos = position_max + pos[-1] * 0.1
         startpos = self.th_orig_pos[:-1] + [e_startpos]
-        self.toolhead.set_position(newpos=startpos,
-                                   homing_axes=(self.toolhead.axis_count, ))
+        self.toolhead.set_position(newpos=startpos, homing_axes="e")
 
         # NOTE: flag homing start
         self.homing = True
@@ -312,7 +311,7 @@ class ExtruderHoming:
         startpos = th_orig_pos[:-1] + [e_startpos]
         # NOTE: Set the initial position, also permitting limit checks of the extruder axis
         #       to pass (see "homing_axes" argument), which otherwise block homing moves too.
-        toolhead.set_position(startpos, homing_axes=tuple([len(startpos)-1]))
+        toolhead.set_position(startpos, homing_axes="e")
 
         # NOTE: flag homing start
         self.homing = True

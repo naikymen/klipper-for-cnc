@@ -188,9 +188,10 @@ class ExtruderStepper:
         #       calls set_position on each of the MCU_stepper objects
         #       in each PrinterRail.
         #       It eventually calls "itersolve_set_position".
+        # NOTE: The call to "trapq_set_position" is not needed here,
+        #       it is already done in PrinterExtruder.set_position.
         self.rail.set_position([newpos_e, 0., 0.])
 
-        # TODO: the "homing_axes" parameter is not used rait nau.
         # NOTE: Set limits if the axis is (being) homed.
         if homing_e and self.can_home:
             # NOTE: This will put the axis to a "homed" state, which means that
@@ -412,7 +413,7 @@ class PrinterExtruder:
         # NOTE: Software limit checks.
         self.extruder_stepper.check_move_limits(move)
 
-    def set_position(self, newpos_e, homing_axes=(), print_time=None):
+    def set_position(self, newpos_e, homing_axes:str="", print_time=None):
         """PrinterExtruder version of set_position in 'toolhead.py',
         called by its 'set_position_e' method.
         Should set the position in the 'trapq' and in the 'extruder kin'.
@@ -431,7 +432,7 @@ class PrinterExtruder:
         #       and appear as "homed".
         # NOTE: 'homing_axes' should contain a value equal to 'self.toolhead.pos_length'
         #       in this case (e.g. '4' in an XYZE setup). See 'cmd_HOME_EXTRUDER' at 'extruder_home.py'.
-        homing_e = self.axis_idx in homing_axes
+        homing_e = "e" in homing_axes.lower()
 
         # NOTE: Have the ExtruderStepper set its "MCU_stepper" position.
         self.extruder_stepper.set_position(newpos_e=newpos_e,

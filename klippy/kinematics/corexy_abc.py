@@ -34,8 +34,8 @@ class CoreXYKinematicsABC:
             msg = "CoreXYKinematicsABC: Only the full 'XYZ' configuration is supported in corexy for now."
             raise self.printer.config_error(msg)
         
-        # Save utilities for later.
-        self.axes_to_xyz = toolhead.axes_to_xyz
+        # Save toolhead utilities for later.
+        self.abc_axes_to_xyz = toolhead.abc_axes_to_xyz
         
         # Configured set of axes (indexes) and their letter IDs. Can have length less or equal to 3.
         self.axis_config = deepcopy(axes_ids)   # list of length <= 3: [0, 1, 3], [3, 4], [3, 4, 5], etc.
@@ -170,23 +170,34 @@ class CoreXYKinematicsABC:
         xyz_pos = [0.5 * (pos[0] + pos[1]), 0.5 * (pos[0] - pos[1]), pos[2]]
         return xyz_pos
     
-    def set_position(self, newpos, homing_axes):
+    def set_position(self, newpos, homing_axes: str):
+        """
+        Set the position of the corexy kinematic.
+
+        Args:
+            newpos: The new position of the kinematic.
+            homing_axes: The axes to home (any of "xyz").
+        
+        Example:
+            newpos = (0.0, 0.0, 66.0, 0.0, 0.0, 0.0)
+            kinematics.set_position(newpos, "z")
+        """
         for i, rail in enumerate(self.rails):
             rail.set_position(newpos)
-            # TODO: MERGE - string axes in homing_axes.
-            if "xyz"[i] in homing_axes:
+            # NOTE: Only 'xyz' axes are supported, hence axis_names is always 'xyz'.
+            if self.axis_names.lower()[i] in homing_axes:
                 self.limits[i] = rail.get_range()
     
-    # TODO: MERGE
-    def clear_homing_state(self, axes):
-        for i, _ in enumerate(self.limits):
-            if i in axes:
-                self.limits[i] = (1.0, -1.0)
+    def clear_homing_state(self, clear_axes: str):
+        for axis, axis_name in enumerate(self.axis_names.lower()):
+            if axis_name in clear_axes:
+                self.limits[axis] = (1.0, -1.0)
 
     def home(self, homing_state):
         # Each axis is homed independently and in order
         for axis in homing_state.get_axes():
-            rail_index = self.axes_to_xyz(axis)
+            # Here I need to convert the axis (e.g. "x") to a local rail index (e.g. 0).
+            rail_index = self.abc_axes_to_xyz(self.axis_map_rev[axis])
             self.home_axis(homing_state, axis, self.rails[rail_index])
     
     def home_axis(self, homing_state, axis, rail):

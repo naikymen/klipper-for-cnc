@@ -145,7 +145,7 @@ class BedMesh:
     def handle_connect(self):
         self.toolhead: ToolHead = self.printer.lookup_object('toolhead')
         # NOTE: Overwrite dummy "last_position" to match the toolhead's vector.
-        # self.last_position = [0.0 for i in range(self.toolhead.pos_length)]  # TODO: MERGE
+        self.last_position = [0.] * self.toolhead.pos_length
         self.bmc.print_generated_points(logging.info, truncate=True)
     def set_mesh(self, mesh):
         if mesh is not None and self.fade_end != self.FADE_DISABLE:

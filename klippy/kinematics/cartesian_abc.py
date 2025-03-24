@@ -232,12 +232,12 @@ class CartKinematicsABC(CartKinematics):
         if l <= h:
             self.limits[i] = range
 
-    def set_position(self, newpos, homing_axes):
+    def set_position(self, newpos, homing_axes: str):
         """Set the position of the kinematics
 
         Args:
             newpos (list): 3-element list with the new positions for the kinematics.
-            homing_axes (tuple): 3-element tuple indicating the axes that should have their limits defined (i.e. set as homed).
+            homing_axes (str): String of lowercase characters (i.e. 'xyz', 'abc') indicating the axes that should have their limits defined (i.e. set as homed).
         """
         logging.info(f"CartKinematicsABC.set_position: setting kinematic position of {len(self.rails)} rails " +
                      f"with newpos={newpos} and homing_axes={homing_axes}")
@@ -253,17 +253,17 @@ class CartKinematicsABC(CartKinematics):
 
         # NOTE: Set limits if the axis is (being) homed.
         for axis_name in homing_axes:
-            # TODO: MERGE - string axes in homing_axes.
-            axis = "xyz".index(axis_name)
+            # Convert axis name to integer index (in the local 0,1,2 range).
+            axis: int = self.axis_names.lower().index(axis_name)
             # Get the proper rail for the "dual-carriage" case.
             if self.dc_module and axis == self.dc_module.axis:
                 rail = self.dc_module.get_primary_rail().get_rail()
-            elif axis not in self.axis_local:
-                msg = f"CartKinematicsABC warning: not setting limits on local axis {axis} as it"
-                msg += f" is not in the local list of configured axes: {self.axis_local}"
-                logging.warning(msg)
-                continue
             else:
+                if axis not in self.axis_local:
+                    msg = f"CartKinematicsABC warning: not setting limits on local axis {axis} as it"
+                    msg += f" is not in the local list of configured axes: {self.axis_local}"
+                    logging.warning(msg)
+                    continue
                 rail = self.rails[axis]
             # NOTE: Here each limit becomes associated to a certain "rail" (i.e. an axis).
             #       If the rails were set up as "XYZ" in that order (as per "self.axis_names"),
@@ -275,11 +275,18 @@ class CartKinematicsABC(CartKinematics):
             logging.info(f"CartKinematicsABC: setting limits={rail.get_range()} on stepper: {rail.get_name()}")
             self.limits[axis] = rail.get_range()
 
-    # TODO: MERGE
-    def clear_homing_state(self, axes):
-        for i, _ in enumerate(self.limits):
-            if i in axes:
-                self.limits[i] = (1.0, -1.0)
+    def clear_homing_state(self, clear_axes: str):
+        """
+        Clear the homing state of the specified axes. This sets the limits of
+        the cleared axes to (-1.0, 1.0) and allows the kinematic move check to
+        pass for those axes.
+
+        Parameters:
+            clear_axes (str): Axis names to clear the homing state on (lower case).
+        """
+        for axis, axis_name in enumerate(self.axis_names):
+            if axis_name.lower() in clear_axes:
+                self.limits[axis] = (1.0, -1.0)
 
     def home_axis(self, homing_state: Homing, axis, rail):
         # Determine movement
@@ -306,7 +313,7 @@ class CartKinematicsABC(CartKinematics):
             if self.dc_module is not None and axis == self.dual_carriage_axis:
                 self.dc_module.home(homing_state)
             else:
-                self.home_axis(homing_state, axis, self.rails[toolhead.axes_to_xyz(axis)])
+                self.home_axis(homing_state, axis, self.rails[toolhead.abc_axes_to_xyz(axis)])
 
     def _check_endstops(self, move):
         logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")

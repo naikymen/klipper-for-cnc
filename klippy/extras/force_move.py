@@ -145,20 +145,20 @@ class ForceMove:
             value = gcmd.get_float(axis_name, None)
             # If found, then the axis can be considered homed.
             if value is not None:
-                homing_axes.append(axis_idx)
+                homing_axes += axis_name
                 curpos[axis_idx] = value
             # If not found, then the position remains the same.
         # Set the position. Those axes in the homing_axes list will
         # be set as "homed" by downstream methods (specially kinematics).
         logging.info(f"SET_KINEMATIC_POSITION: setting position with curpos={curpos} scanning axis_map={toolhead.axis_map} for commandline={gcmd.get_commandline()}")
-        toolhead.set_position(curpos, homing_axes=tuple(homing_axes))
+        toolhead.set_position(curpos, homing_axes=homing_axes)
 
         # NOTE: Support new "CLEAR" option.
         clear = gcmd.get('CLEAR', '').upper()
         for axes in toolhead.axis_triplets:
             # Iterate over axis sets (XYZ, ABC, etc.).
-            clear_axes = [axes.index(a) for a in axes if a in clear]
-            toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes)
+            clear_axes = [a for a in axes if a in clear]
+            toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes.lower())
 
 def load_config(config):
     return ForceMove(config)
