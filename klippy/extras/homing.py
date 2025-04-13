@@ -329,17 +329,18 @@ class HomingMove:
                 # NOTE: Get the stepper "halt_kin_spos" (halting positions).
                 halt_kin_spos = self.calc_halt_kin_spos(extruder_steppers)
 
-                # NOTE: Calculate the "actual" halting position in distance units.
+                # NOTE: Calculate the "actual" halting position in distance units,
+                #       that can differ from the endstop trigger position.
                 haltpos = self.calc_toolhead_pos(kin_spos=halt_kin_spos,
                                                  offsets=over_steps)
-
-                # NOTE: set the toolhead position to the (corrected) halting position.
                 # NOTE: for extruder_home this could be:
                 #           set_position: input=[-1.420625, 0.0, 0.0, 0.0] homing_axes=()
                 #       The fourt element comes from "newpos_e" in the call to
                 #       "toolhead.set_position" above. The first element is the corrected
                 #       "halt" position.
-                self.toolhead.set_position(haltpos)
+
+            # Set the toolhead position to the halting position.
+            self.toolhead.set_position(haltpos)
         logging.info(f"homing.homing_move: endstop trigger position trigpos={trigpos}")
         logging.info(f"homing.homing_move: toolhead position set to haltpos={haltpos}")
 
