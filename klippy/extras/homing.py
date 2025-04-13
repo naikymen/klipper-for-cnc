@@ -546,6 +546,7 @@ class Homing:
             # Home again
             startpos = [rp - ad * retract_r
                         for rp, ad in zip(retractpos, axes_d)]
+            logging.info(f"homing.home_rails: issuing second homing move with startpos={startpos}")
             self.toolhead.set_position(startpos)
             hmove = HomingMove(self.printer, endstops,
                                # NOTE: Force use of a specific toolhead.
