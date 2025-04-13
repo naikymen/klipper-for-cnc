@@ -339,8 +339,9 @@ class HomingMove:
                 #       The fourt element comes from "newpos_e" in the call to
                 #       "toolhead.set_position" above. The first element is the corrected
                 #       "halt" position.
-                logging.info("homing.homing_move: setting position.")
                 self.toolhead.set_position(haltpos)
+        logging.info(f"homing.homing_move: endstop trigger position trigpos={trigpos}")
+        logging.info(f"homing.homing_move: toolhead position set to haltpos={haltpos}")
 
         # Signal homing/probing move complete
         try:
@@ -530,10 +531,12 @@ class Homing:
 
             axes_d = [hp - sp for hp, sp in zip(homepos, startpos)]
 
-            # TODO: consider using all coordinates, not just XYZ(ABC).
+            # NOTE: Using all coordinates, not just XYZ(ABC).
             move_d = math.sqrt(sum([d*d for d in axes_d[:-1]]))
 
+            # Fraction of the total distance of the homing move that corresponds to retraction
             retract_r = min(1., hi.retract_dist / move_d)
+            # The retraction position is someway between the initial and final position of the total homing move.
             retractpos = [hp - ad * retract_r
                           for hp, ad in zip(homepos, axes_d)]
 
