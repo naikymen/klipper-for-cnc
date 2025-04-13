@@ -238,12 +238,14 @@ class LookAheadQueue:
 
         Args:
             lazy (bool, optional): _description_. Defaults to False.
+
+        NOTE: called by "add_move" when:
+              "Enough moves have been queued to reach the target flush time."
+              Also called by "flush_step_generation".
         """
+
         # NOTE: logging for tracing activity
-        logging.info("MoveQueue flush: function triggered.")
-        # NOTE: called by "add_move" when:
-        #       "Enough moves have been queued to reach the target flush time."
-        #       Also called by "flush_step_generation".
+        # logging.info("MoveQueue flush: function triggered.")
 
         self.junction_flush = LOOKAHEAD_FLUSH_TIME  # Hardcoded value of "0.250"
 
@@ -336,17 +338,17 @@ class LookAheadQueue:
         #       which can happen if the queue was originally empty (¿or perhaps if
         #       the peak cruise speed was found on the second move?).
         if update_flush_count or not flush_count:
-            logging.info(f"MoveQueue flush: _process_moves skipped due to update_flush_count={update_flush_count} or not flush_count={flush_count}")
+            # logging.info(f"MoveQueue flush: _process_moves skipped due to update_flush_count={update_flush_count} or not flush_count={flush_count}")
             return
 
         # Generate step times for all moves ready to be flushed
         # NOTE: The clock time when these moves will be executed is not yet explicit,
         #       it will be calculated  by "_process_moves", and then updated with
         #       a call to "_update_move_time".
-        logging.info("MoveQueue flush: calling _process_moves.")
         # NOTE: "flush_count" can only have been made possibly smaller by
         #       setting "lazy=True" from the start. This means that a "regular"
         #       call to flush will try to remove all
+        # logging.info("MoveQueue flush: calling _process_moves.")
         self.toolhead._process_moves(moves=queue[:flush_count])
 
         # Remove processed moves from the queue
@@ -696,18 +698,20 @@ class ToolHead:
     def _advance_flush_time(self, flush_time):
         """Flush steps from itersolve and update "print_time".
         It should have a better name, because it is the function that actually sends the steps. Previously named "_update_move_time".
+
+        NOTE: This function updates "self.print_time" directly, periodically
+              flushing moves until it is greater than the requested "flush_time".
+              It updates "self.print_time" until it is greater than
+              the provided "flush_time", flushing moves in the
+              "itersolve" queue in small time chunks (probably to
+              "Generate steps for moves" )
+        NOTE: It also calls "trapq_finalize_moves" on the extruder and toolhead,
+              "flush_moves" on all MCUs, and "generate_steps" on all steppers.
+        NOTE: Called by "flush_step_generation", "_process_moves",
+              "dwell", and "_update_drip_move_time".
         """
-        # NOTE: This function updates "self.print_time" directly, periodically
-        #       flushing moves until it is greater than the requested "flush_time".
-        #       It updates "self.print_time" until it is greater than
-        #       the provided "flush_time", flushing moves in the
-        #       "itersolve" queue in small time chunks (probably to
-        #       "Generate steps for moves" )
-        # NOTE: It also calls "trapq_finalize_moves" on the extruder and toolhead,
-        #       "flush_moves" on all MCUs, and "generate_steps" on all steppers.
-        # NOTE: Called by "flush_step_generation", "_process_moves",
-        #       "dwell", and "_update_drip_move_time".
-        logging.info(f"ToolHead: _update_move_time triggered with flush_time={flush_time}")
+        # logging.info(f"ToolHead._update_move_time triggered with flush_time={flush_time}")
+        
         flush_time = max(flush_time, self.last_flush_time)
         # Generate steps via itersolve
         sg_flush_want = min(flush_time + STEPCOMPRESS_FLUSH_TIME,
@@ -739,7 +743,7 @@ class ToolHead:
         for axes in list(self.kinematics):
             # Iterate over ["XYZ", "ABC"].
             kin = self.kinematics[axes]
-            logging.info(f"ToolHead._update_move_time calling trapq_finalize_moves on axes={axes} with free_time={free_time}")
+            # logging.info(f"ToolHead._update_move_time calling trapq_finalize_moves on axes={axes} with free_time={free_time}")
             self.trapq_finalize_moves(kin.trapq, free_time, clear_history_time)
         self.extruder.update_move_time(free_time, clear_history_time)
         # Flush stepcompress and mcu steppersync
