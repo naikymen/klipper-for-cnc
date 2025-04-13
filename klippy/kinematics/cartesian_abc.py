@@ -315,8 +315,8 @@ class CartKinematicsABC(CartKinematics):
             if self.dc_module is not None and axis == self.dual_carriage_axis:
                 self.dc_module.home(homing_state)
             else:
-                axis_xyz = self.toolhead.abc_axes_to_xyz(axis)
-                self.home_axis(homing_state, axis_xyz, self.rails[axis_xyz])
+                local_axis_index = self.toolhead.abc_axes_to_xyz(axis)
+                self.home_axis(homing_state, axis=axis, rail=self.rails[local_axis_index])
 
     def _check_endstops(self, move):
         logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")
