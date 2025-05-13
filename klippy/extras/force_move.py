@@ -169,7 +169,7 @@ class ForceMove:
         toolhead.set_position(curpos, homing_axes=set_homed_axes)
 
         # NOTE: Support new "CLEAR" option.
-        for axes in toolhead.axis_triplets:
+        for axes in toolhead.kinematics.keys():
             # Iterate over axis sets (XYZ, ABC, etc.).
             clear_axes = ''.join([a for a in axes.lower() if a in clear_homed_axes])
             toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes)
