@@ -180,7 +180,7 @@ class HomingMove:
                     triggered=True, check_triggered=True):
         """Called by the 'home_rails' or 'manual_home' methods."""
         # Notify start of homing/probing move
-        self.printer.send_event(self.toolhead.event_prefix + "homing:homing_move_begin", self)
+        self.printer.send_event("homing:homing_move_begin", self)
         logging.info("homing.homing_move: homing move called, starting setup.")
 
         # Note start location
@@ -351,7 +351,7 @@ class HomingMove:
             #       - probe.py
             #       - tmc.py
             #       Probably not relevant to extruder homing.
-            self.printer.send_event(self.toolhead.event_prefix + "homing:homing_move_end", self)
+            self.printer.send_event("homing:homing_move_end", self)
         except self.printer.command_error as e:
             if error is None:
                 error = str(e)
@@ -497,7 +497,7 @@ class Homing:
         logging.info(f"homing.home_rails: homing begins with forcepos={forcepos} and movepos={movepos}")
 
         # Notify of upcoming homing operation
-        self.printer.send_event(self.toolhead.event_prefix + "homing:home_rails_begin", self, rails)
+        self.printer.send_event("homing:home_rails_begin", self, rails)
         # self.printer.send_event("homing:home_rails_begin", self, rails)
 
         # Alter kinematics class to think printer is at forcepos
@@ -568,7 +568,7 @@ class Homing:
         self.trigger_mcu_pos = {sp.stepper_name: sp.trig_pos
                                 for sp in hmove.stepper_positions}
         self.adjust_pos = {}
-        self.printer.send_event(self.toolhead.event_prefix + "homing:home_rails_end", self, rails)
+        self.printer.send_event("homing:home_rails_end", self, rails)
         if any(self.adjust_pos.values()):
             # Apply any homing offsets
             homepos = self.toolhead.get_position()

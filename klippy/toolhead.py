@@ -501,9 +501,6 @@ class ToolHead:
         self.name = "toolhead"
         self.extra_toolheads = {}
 
-        # Prefix for event names
-        self.event_prefix = ""
-
         # Velocity and acceleration control
         self.max_velocity = config.getfloat('max_velocity', above=0.)
         self.max_accel = config.getfloat('max_accel', above=0.)
@@ -796,7 +793,7 @@ class ToolHead:
 
         if min_print_time > self.print_time:
             self.print_time = min_print_time
-            self.printer.send_event(self.event_prefix + "toolhead:sync_print_time",  # "toolhead:sync_print_time"
+            self.printer.send_event("toolhead:sync_print_time",
                                     curtime, est_print_time, self.print_time)
     def _process_moves(self, moves):
         """
@@ -1202,7 +1199,7 @@ class ToolHead:
         # NOTE: this event is mainly recived by gcode_move.reset_last_position,
         #       which updates its "self.last_position" with (presumably) the
         #       "self.commanded_pos" above.
-        self.printer.send_event(self.event_prefix + "toolhead:set_position")  # "toolhead:set_position"
+        self.printer.send_event("toolhead:set_position")
 
     def set_kin_trap_position(self, trapq, newpos):
         """Abstraction of trapq_set_position for different sets of kinematics.
@@ -1340,7 +1337,7 @@ class ToolHead:
         # NOTE: This event is handled by "reset_last_position"
         #       (at gcode_move.py) which updates "self.last_position"
         #       in the GCodeMove class.
-        self.printer.send_event(self.event_prefix + "toolhead:manual_move")  # "toolhead:manual_move"
+        self.printer.send_event("toolhead:manual_move")
 
     def dwell(self, delay):
         # NOTE: get_last_move_time runs "_flush_lookahead" which then
@@ -1719,8 +1716,7 @@ class ToolHead:
                "square_corner_velocity: %.6f" % (
                    self.max_velocity, self.max_accel,
                    self.min_cruise_ratio, self.square_corner_velocity))
-        # TODO: Is "self.event_prefix" really neded here?
-        self.printer.set_rollover_info("toolhead", self.event_prefix + "toolhead: %s" % (msg,))
+        self.printer.set_rollover_info("toolhead", "toolhead: %s" % (msg,))
         if (max_velocity is None and max_accel is None
             and square_corner_velocity is None and min_cruise_ratio is None):
             gcmd.respond_info(msg, log=False)

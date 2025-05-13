@@ -34,7 +34,6 @@ class ManualStepper:
 
         # NOTE: Additional objects required by "HomingMove.homing_move", needed
         #       to home the manual stepper. See notes below, at "do_homing_move".
-        self.event_prefix=""
         self.kinematics={"m": self}
 
         # Register commands
