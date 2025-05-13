@@ -90,6 +90,12 @@ This fork implements:
     - You can now rely on absolute coordinate systems staying that way unless you update them explicitly (e.g. with `G92 E0` and similar commands).
     - The extruder's coordinate origin used to be altered without warning after every tool-change (i.e. extruder activation) in a way equivalent to sending `G92 E0`. This means that the extruder's origins were effectively relative to the last position of the extruder before a toolchange, which was enforced in Klipper to support the obscure expectations of old slicers.
     - See discussion at: https://klipper.discourse.group/t/6558
+- A new `relative_e_restore` configuration parameter for the `[printer]` section was added. It allows to skip the restoration of the 'relative extruder "E" position' during a `RESTORE_GCODE_STATE` command, wich normally offsets the GCODE `base_position` of the extruder (making subsequent absolute moves relative to the restored position).
+    - By default, the effect of `RESTORE_GCODE_STATE` is equivalent to a G92 command with the saved position of the extruder.
+    - This means that absolute moves will be interpreted relatively to the restored extruder coordinate.
+    - For extruders this might make sense (at least in Klipper), but results in a problem with Mainsail, which saves and restores the GCODE state around manual move (e.g. after homing to 0 and a relative move to +3, an absolute move to 0 would do nothing against expectations).
+    - Maybe this is related to interrupting GCODE programs that use absolute coordinates for extruders, without messing them up when they resume if the extruder was moved (e.g. for a filament change).
+    - Set `relative_e_restore: False` under `[printer]` to disable this, [or hack Mainsail's macros](https://gitlab.com/pipettin-bot/pipettin-bot/-/blob/04197efe78d367d2ec5182f59db8b23af1685b30/code/klipper-setup/configs/mainsail_dummy.cfg#L29)
 - The PID controller now uses sample averaging and linear regression to compute the P and D terms, respectively.
     - This replaces the rather obscure pre-existing logic.
     - This brings much improvement for noisy ADCs, such as the one in my Arduino UNO.

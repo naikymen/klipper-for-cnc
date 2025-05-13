@@ -35,6 +35,9 @@ class GCodeMove:
         self.axis_names = main_config.get('axis', 'XYZ')
         self.axis_count = len(self.axis_names)
 
+        # Skip relative E offset on GCODE restore if requested.
+        self.relative_e_restore = main_config.get('relative_e_restore', True)
+
         # Axis sets and names for them are partially hardcoded all around.
         self.axis_triplets = ["XYZ", "ABC", "UVW"]
         self.axis_letters = "".join(self.axis_triplets)
@@ -398,13 +401,14 @@ class GCodeMove:
         self.speed = state['speed']
         self.speed_factor = state['speed_factor']
         self.extrude_factor = state['extrude_factor']
-        # Restore the relative E position
-        # TODO: This code show issues with axis limits on home-able extruders,
+        # Restore the relative E position ().
+        # NOTE: The default behaviour is equivalent to a G92 using the saved position of the extruder.
+        #       The purpose of it is unclear (added in commit c54b8da530dc724b129066d1f3a825226926c5e6).
+        # TODO: This behaviour causes issues with axis limits on home-able extruders,
         #       as revealed by moves done by Mainsail with the "_CLIENT" macros.
-        #       The purpose of it is unclear, and dates back to the commit where
-        #       the method was added (commmit c54b8da530dc724b129066d1f3a825226926c5e6).
+        #       It is now optional through a new parameter in the "[printer]" config section.
         e_diff = self.last_position[-1] - state['last_position'][-1]
-        self.base_position[-1] += e_diff
+        self.base_position[-1] += e_diff if self.relative_e_restore else 0
         # Move the toolhead back if requested
         if gcmd.get_int('MOVE', 0):
             speed = gcmd.get_float('MOVE_SPEED', self.speed, above=0.)
