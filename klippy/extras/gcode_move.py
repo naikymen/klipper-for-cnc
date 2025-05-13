@@ -401,6 +401,8 @@ class GCodeMove:
         # Restore the relative E position
         # TODO: This code show issues with axis limits on home-able extruders,
         #       as revealed by moves done by Mainsail with the "_CLIENT" macros.
+        #       The purpose of it is unclear, and dates back to the commit where
+        #       the method was added (commmit c54b8da530dc724b129066d1f3a825226926c5e6).
         e_diff = self.last_position[-1] - state['last_position'][-1]
         self.base_position[-1] += e_diff
         # Move the toolhead back if requested
