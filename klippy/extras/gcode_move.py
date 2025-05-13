@@ -36,7 +36,7 @@ class GCodeMove:
         self.axis_count = len(self.axis_names)
 
         # Skip relative E offset on GCODE restore if requested.
-        self.relative_e_restore = main_config.get('relative_e_restore', True)
+        self.relative_e_restore = main_config.getboolean('relative_e_restore', True)
 
         # Axis sets and names for them are partially hardcoded all around.
         self.axis_triplets = ["XYZ", "ABC", "UVW"]
