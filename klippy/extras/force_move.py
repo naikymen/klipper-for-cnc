@@ -142,7 +142,7 @@ class ForceMove:
         # Get the axes to be set as homed (defaults to all unless set).
         set_homed = gcmd.get('SET_HOMED', axis_letters).lower()
         # Iterate over the names and indices of the axes in the main toolhead.
-        # homing_axes = ""
+        set_homed_axes = ""
         for axis_idx, axis_name in enumerate(axis_letters):
             # Grow the set homed axes string.
             # NOTE: Here "axis_name" is upper-case, and "set_homed" is lower.
@@ -151,7 +151,6 @@ class ForceMove:
             value = gcmd.get_float(axis_name, None)
             # If found, then the axis can be considered homed.
             if value is not None:
-                # homing_axes += axis_name
                 curpos[axis_idx] = value
             # If not found, then the position remains the same.
 
