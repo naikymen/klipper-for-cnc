@@ -136,28 +136,43 @@ class ForceMove:
     def cmd_SET_KINEMATIC_POSITION(self, gcmd):
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.get_last_move_time()
+        axis_letters = "".join(list(toolhead.axis_map))
         curpos = toolhead.get_position()
 
+        # Get the axes to be set as homed (defaults to all unless set).
+        set_homed = gcmd.get('SET_HOMED', axis_letters).lower()
         # Iterate over the names and indices of the axes in the main toolhead.
-        homing_axes = ""
-        for axis_idx, axis_name in enumerate(list(toolhead.axis_map)):
-            # Try to find a value.
+        # homing_axes = ""
+        for axis_idx, axis_name in enumerate(axis_letters):
+            # Grow the set homed axes string.
+            # NOTE: Here "axis_name" is upper-case, and "set_homed" is lower.
+            set_homed_axes += axis_name if axis_name in set_homed.upper() else ""
+            # Try to find a coordinate value for the axis.
             value = gcmd.get_float(axis_name, None)
             # If found, then the axis can be considered homed.
             if value is not None:
-                homing_axes += axis_name
+                # homing_axes += axis_name
                 curpos[axis_idx] = value
             # If not found, then the position remains the same.
-        # Set the position. Those axes in the homing_axes list will
+
+        # Compute the axes to un-home.
+        if gcmd.get('CLEAR_HOMED', None) is None:
+            # "CLEAR" is an alias for "CLEAR_HOMED"; should deprecate
+            clear_homed = gcmd.get('CLEAR', '').lower()
+        else:
+            clear_homed = gcmd.get('CLEAR_HOMED', '').lower()
+        clear_homed_axes = "".join([a for a in axis_letters.lower() if a in clear_homed])
+
+        # Set the position. Those axes in the "homing_axes" string will
         # be set as "homed" by downstream methods (specially kinematics).
-        logging.info(f"SET_KINEMATIC_POSITION: setting position with curpos={curpos} scanning axis_map={toolhead.axis_map} for commandline={gcmd.get_commandline()}")
-        toolhead.set_position(curpos, homing_axes=homing_axes)
+        logging.info(f"SET_KINEMATIC_POSITION: setting pos={curpos} set_homed={set_homed_axes} clear_homed={clear_homed_axes}")
+        logging.info(f"SET_KINEMATIC_POSITION: scanned axis_map={toolhead.axis_map} for commandline={gcmd.get_commandline()}")
+        toolhead.set_position(curpos, homing_axes=set_homed_axes)
 
         # NOTE: Support new "CLEAR" option.
-        clear = gcmd.get('CLEAR', '').upper()
         for axes in toolhead.axis_triplets:
             # Iterate over axis sets (XYZ, ABC, etc.).
-            clear_axes = ''.join([a.lower() for a in axes if a in clear])
+            clear_axes = ''.join([a for a in axes.lower() if a in clear_homed_axes])
             toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes)
 
 def load_config(config):
