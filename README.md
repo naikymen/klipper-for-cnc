@@ -2,6 +2,8 @@
 
 Welcome to my fork of the Klipper project, with home-able extruders, configurable extra ABC axes, and CNC-style probing!
 
+This fork matches upstream Klipper features up to version `0.13`.
+
 Full changes and limitations stated further down this readme.
 
 Use cases: as far as I can tell.
@@ -26,6 +28,12 @@ Critical limitations: you should know this beforehand.
   - Note: motion on the ABC axes will not affect maximum speed of the XYZ axes, which will match the desired feedrate (`F` parameter).
 - Most of the modules in "extra" have not been tested and might not work as expected (e.g. the arcs module).
 - Limitations stated further down this readme.
+
+Roadmap:
+
+- Klipper `v0.13` has also started to modularize code to support additional axes without much hassle ([through `manual_stepper`](https://www.klipper3d.org/G-Codes.html#manual_stepper)). Once that work is complete, I'll merge the rest of the CNC features found here to a clean master branch.
+- Until then, I won't merge new commits from upstream, but will be active testing and pushing fixes.
+- After moving to the new multi-axis setup, I'll continue to maintain this fork (without the huge overhead of merging multi-axis code).
 
 Disclaimers:
 
@@ -168,7 +176,6 @@ Thanks to some [changes in upstream moonraker](https://github.com/Arksine/moonra
 See examples here:
 
 - <https://gitlab.com/pipettin-bot/pipettin-bot/-/tree/master/code/klipper-setup/configs>
-- <https://gitlab.com/pipettin-bot/forks/firmware/klipper-stack/-/tree/pipetting/printer_data/config>
 
 These are meant as _soft_ reference configs; you _must_ adjust them to match your setup before using them. Some of them may be outdated.
 
