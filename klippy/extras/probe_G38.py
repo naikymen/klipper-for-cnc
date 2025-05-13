@@ -301,10 +301,10 @@ class ProbeG38:
                 v = float(params['E']) * self.extrude_factor
                 if not self.absolute_coord or not self.absolute_extrude:
                     # value relative to position of last move
-                    self.last_position[self.toolhead.axis_count] += v
+                    self.last_position[-1] += v
                 else:
                     # value relative to base coordinate position
-                    self.last_position[self.toolhead.axis_count] = v + self.base_position[self.toolhead.axis_count]
+                    self.last_position[-1] = v + self.base_position[-1]
                 # NOTE: register which axes are being probed
                 probe_axes.append(active_extruder_name)  # Append "extruderN"
 
