@@ -167,6 +167,7 @@ class GCodeMove:
         # self.base_position[3] = self.last_position[3]
 
     def _handle_home_rails_end(self, homing_state: Homing, rails):
+        """Triggered by the home_rails method in homing.py after the homing moves complete"""
         self.reset_last_position()
         for axis in homing_state.get_axes():
             self.base_position[axis] = self.homing_position[axis]
@@ -217,9 +218,8 @@ class GCodeMove:
         #       Also called by "_handle_activate_extruder" (and other methods).
         logging.info(f"gcode_move.reset_last_position: triggered.")
         if self.is_printer_ready:
-            # NOTE: The "" method is actually either "transform.get_position",
-            #       "toolhead.get_position", or a default function returning "0.0"
-            #       for all axis.
+            # NOTE: The "position_with_transform" method is actually either "transform.get_position",
+            #       "toolhead.get_position", or a default function returning "0.0" for each axis.
             self.last_position = self.position_with_transform()
             logging.info(f"gcode_move.reset_last_position: set self.last_position={self.last_position}")
         else:
@@ -243,20 +243,20 @@ class GCodeMove:
                     v = float(params[axis])
                     logging.info(f"GCodeMove: parsed axis={axis} with value={v}")
                     if not self.absolute_coord:
-                        # value relative to position of last move
+                        # Relative move, with value relative to position of last move.
                         self.last_position[pos] += v
                     else:
-                        # value relative to base coordinate position
+                        # Absolute move, with value relative to base coordinate position.
                         self.last_position[pos] = v + self.base_position[pos]
             # NOTE: extruder move coordinates.
             if 'E' in params:
                 v = float(params['E']) * self.extrude_factor
                 logging.info(f"GCodeMove: parsed axis=E with value={v}")
                 if not self.absolute_coord or not self.absolute_extrude:
-                    # value relative to position of last move
+                    # Relative move, with value relative to position of last move.
                     self.last_position[-1] += v
                 else:
-                    # value relative to base coordinate position
+                    # Absolute move, with value relative to base coordinate position.
                     self.last_position[-1] = v + self.base_position[-1]
             # NOTE: move feedrate.
             if 'F' in params:
@@ -303,7 +303,7 @@ class GCodeMove:
     def cmd_G91(self, gcmd):
         # Use relative coordinates
         self.absolute_coord = False
-    cmd_G92_help = "Set position of the toolhead."
+    cmd_G92_help = "Set position of the toolhead (i.e. set the gcode_base offsets)."
     def cmd_G92(self, gcmd):
         # Set position
         ax_names = list(self.axis_map)  # e.g.: ["X", "Y", "Z", "A", "E"]
@@ -399,6 +399,8 @@ class GCodeMove:
         self.speed_factor = state['speed_factor']
         self.extrude_factor = state['extrude_factor']
         # Restore the relative E position
+        # TODO: This code show issues with axis limits on home-able extruders,
+        #       as revealed by moves done by Mainsail with the "_CLIENT" macros.
         e_diff = self.last_position[-1] - state['last_position'][-1]
         self.base_position[-1] += e_diff
         # Move the toolhead back if requested
