@@ -184,17 +184,17 @@ class ProbeG38:
         self.gcode_move: GCodeMove = None
         self.printer.register_event_handler('klippy:mcu_identify',
                                             self._handle_mcu_identify)
-        
-        # NOTE: Register this object as the printer's 'probe' object,
-        #       making it available to other modules (e.g. bed mesh).
-        self.printer.add_object(self.mcu_probe_name, self)
 
     def setup_probe(self, config):
-        """"Instantiate PrinterProbeG38 object.
-        Registers the commands for regular probing.
+        """Instantiate PrinterProbeG38 object.
+        Registers the commands for regular probing, and
+        registers this object as the printer's 'probe' object,
+        making it available to other modules (e.g. bed mesh).
         """
         logging.info(f"Configuring G38.n commands for probe '{self.mcu_probe_name}'.")
-        return PrinterProbeG38(config=config, mcu_probe_name=self.mcu_probe_name)
+        probe = PrinterProbeG38(config=config, mcu_probe_name=self.mcu_probe_name)
+        self.printer.add_object(self.mcu_probe_name, probe)
+        return probe
 
     def register_commands(self):
         """Register CNC-style probing commands."""
