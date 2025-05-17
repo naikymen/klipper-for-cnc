@@ -345,6 +345,8 @@ class ProbeSessionHelper:
         z_idx = toolhead.axis_map["Z"]
         pos[z_idx] = self.z_position
         try:
+            # NOTE: The "probing_move" method is defined in the "ProbeEndstopWrapper"
+            #       class, which in turn calls "homing.probing_move".
             # NOTE: The method is passed "pos", which is actually "min_position"
             #       parameter from the "z_stepper" section, and the current XYE
             #       toolhead coordinates (see notes above).
@@ -541,7 +543,7 @@ class ProbePointsHelper:
         self._manual_probe_start()
 
 # Helper to obtain a single probe measurement
-def run_single_probe(probe, gcmd):
+def run_single_probe(probe: PrinterProbe, gcmd):
     probe_session = probe.start_probe_session(gcmd)
     probe_session.run_probe(gcmd)
     pos = probe_session.pull_probed_results()[0]
@@ -604,7 +606,10 @@ class ProbeEndstopWrapper:
         self._raise_probe()
         self.multi = 'OFF'
     def probing_move(self, pos, speed):
-        phoming = self.printer.lookup_object('homing')
+        phoming: PrinterHoming = self.printer.lookup_object('homing')
+        # NOTE: This is not passing "probe_axes" to "probing_move",
+        #       such that any motion on any axes will be considered
+        #       to check the probing move.
         return phoming.probing_move(self, pos, speed)
     def probe_prepare(self, hmove):
         if self.multi == 'OFF' or self.multi == 'FIRST':

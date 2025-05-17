@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..toolhead import ToolHead
+    from .probe import ProbeEndstopWrapper
 # pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name,line-too-long,consider-using-f-string,multiple-imports,wrong-import-position
 # pylint: disable=logging-fstring-interpolation,logging-not-lazy,fixme
 
@@ -409,42 +410,50 @@ class HomingMove:
             >>> self.homing.check_no_movement(axes=["extruder1"])
         
         Returns:
-            str: The name of the first endstop that failed the check.
+            str: The name of the first endstop that failed the check,
+                 or None if no endstop failed the check.
         """
         logging.info(f"check_no_movement with axes={axes}")
 
         if self.printer.get_start_args().get('debuginput') is not None:
             return None
 
-        # NOTE: from the StepperPosition class:
-        #       -   self.start_pos = stepper.get_mcu_position()
-        #       -   self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
-        for sp in self.stepper_positions:
-            sp_name = sp.stepper_name
+        if axes is None:
+            # Early return if no movement detected when no axis is specified.
+            moved_motors = []
+            # Note which steppers moved by their name.
+            for sp in self.stepper_positions:
+                if sp.start_pos != sp.trig_pos:
+                    moved_motors.append(sp.stepper_name)
+            # If no steppers moved, return the first endstop's name.
+            if not moved_motors:
+                logging.info("check_no_movement: no movement detected")
+                return self.stepper_positions[0].endstop_name
+        else:
+            # NOTE: from the StepperPosition class:
+            #       -   self.start_pos = stepper.get_mcu_position()
+            #       -   self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
+            for sp in self.stepper_positions:
+                sp_name = sp.stepper_name
 
-            if sp.start_pos == sp.trig_pos:
-                # NOTE: Optionally return only if the stepper was involved in the probing.
+                if sp.start_pos == sp.trig_pos:
+                    # One of the steppers in the axes list has not moved.
+                    # NOTE: Optionally return only if the stepper was involved in the probing.
 
-                # NOTE: default behaviour, consider all steppers.
-                if axes is None:
-                    logging.info(f"check_no_movement matched stepper with default behaviour: {sp_name} (no axis filter)")
-                    return sp.endstop_name
-
-                # NOTE: This is the "G38" behaviour.
-                # NOTE: Handle extruder steppers.
-                elif sp_name.lower().startswith("extruder"):
-                    if any(axis.lower() == sp_name.lower() for axis in axes):
-                        # NOTE: If the stepper that did not move was the "active" one, return.
-                        logging.info(f"check_no_movement matched stepper with G38 behaviour: {sp_name}")
+                    # NOTE: This is the "G38" behaviour.
+                    # NOTE: Handle extruder steppers.
+                    if sp_name.lower().startswith("extruder"):
+                        if any(axis.lower() == sp_name.lower() for axis in axes):
+                            # NOTE: If the stepper that did not move was the "active" one, return.
+                            logging.info(f"check_no_movement matched extruder stepper with G38 behaviour: {sp_name}")
+                            return sp.endstop_name
+                    # NOTE: Handle the XYZ axes.
+                    elif any(axis.lower() in sp_name.lower() for axis in axes if axis in "xyz"):
+                        # NOTE: "Will return True if any of the substrings (axis)
+                        #       in substring_list (axes) is contained in string (sp_name)."
+                        #       See https://stackoverflow.com/a/8122096/11524079
+                        logging.info(f"check_no_movement matched kinematics stepper with G38 behaviour: {sp_name}")
                         return sp.endstop_name
-                # NOTE: Handle the XYZ axes.
-                elif any(axis.lower() in sp_name.lower() for axis in axes if axis in "xyz"):
-                    # NOTE: "Will return True if any of the substrings (axis)
-                    #       in substring_list (axes) is contained in string (sp_name)."
-                    #       See https://stackoverflow.com/a/8122096/11524079
-                    logging.info(f"check_no_movement matched stepper with G38 behaviour: {sp_name}")
-                    return sp.endstop_name
-
         return None
 
 # State tracking of homing requests
@@ -618,7 +627,7 @@ class PrinterHoming:
                     "Homing failed due to printer shutdown")
             raise
 
-    def probing_move(self, mcu_probe, pos, speed, check_triggered=True,
+    def probing_move(self, mcu_probe: ProbeEndstopWrapper, pos, speed, check_triggered=True,
                      # NOTE: Add a "triggered" argument. This is eventually used
                      #       to invert the probing logic at "_home_cmd.send()"
                      #       in "mcu.py" to make the low-level "endstop_home" MCU command.
@@ -628,14 +637,28 @@ class PrinterHoming:
                      triggered=True,
                      # NOTE: "probe_axes" should be a list of the axes
                      #       moving in this probing move.
-                     probe_axes=None):
+                     probe_axes: list[str] | None = None):
         """
-        mcu_probe
-        pos
-        speed
-        check_triggered
-        triggered: logic invert for the endstop trigger.
-        probe_axes: list of the axes moving in this probing move (x, y, z, extruder/extruder1).
+        Perform a probing move. This is a move that will trigger the mcu_probe
+        endstop and update the toolhead's position accordingly. The move is
+        performed at the specified speed and will stop when the probe is
+        triggered or the move is complete.
+
+        Parameters:
+        mcu_probe (ProbeEndstopWrapper): The probe endstop to use for this move.
+        pos (list): The position to move to. This is a list of 3 or 4 elements
+            (x, y, z, and optionally e) that specify the absolute position
+            to move to.
+        speed (float): The speed to perform the move at.
+        check_triggered (bool): If true, raise an exception if the probe is
+            already triggered before the move begins. If false, the move will
+            still be performed but the probe trigger will be ignored.
+        triggered (bool): If true, the trigger logic for the endstop will be
+            inverted. This is used by the G38.4/5 commands to probe away from
+            the workpiece.
+        probe_axes (list): A list of the axes moving in this probing move.
+            This should be a list of strings, each of which is one of "x", "y",
+            "z", or "extruder" (or "extruder1" if there are multiple extruders).
         """
 
         endstops = [(mcu_probe, "probe")]
@@ -659,7 +682,6 @@ class PrinterHoming:
         #       "check_no_movement" looks at the stepper
         #       start and trigger positions. If they are
         #       the same, then the error below is raised.
-        #           "Probe triggered prior to movement"
         if hmove.check_no_movement(axes=probe_axes) is not None:
             raise self.printer.command_error(
                 "Probe triggered prior to movement")
