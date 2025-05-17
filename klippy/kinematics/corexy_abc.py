@@ -222,12 +222,17 @@ class CoreXYKinematicsABC:
                      or end_pos[axis] > self.limits[i][1])):
                 if self.limits[i][0] > self.limits[i][1]:
                     # NOTE: self.limits will be "(1.0, -1.0)" when not homed, triggering this.
-                    msg = f"corexy_abc._check_endstops: Must home axis {self.axis_names[i]} first,"
+                    msg = f"endstop check: Must home axis {self.axis_names[i]} first,"
                     msg += f"limits={self.limits[i]} end_pos[axis]={end_pos[axis]} "
                     msg += f"move.axes_d[axis]={move.axes_d[axis]}"
                     logging.info(msg)
                     raise move.move_error(f"Must home axis {self.axis_names[i]} first")
-                raise move.move_error()
+                # Not due to unhomed axes, raise an out of bounds move error.
+                if move.toolhead.are_limits_enabled():
+                    # Only perform the limit check if the limits are enabled in the toolhead.
+                    raise move.move_error()
+                else:
+                    logging.info(f"endstop check: limits are disabled in toolhead, skipping limit check on axis {axis}")
     
     def check_move(self, move):
         """Checks a move for validity.
@@ -244,8 +249,7 @@ class CoreXYKinematicsABC:
             #       see rationale in favor of "axis_config" above, at "_check_endstops".
             pos = move.end_pos[axis]
             limit_checks.append(pos < self.limits[i][0] or pos > self.limits[i][1])
-        if any(limit_checks) and move.toolhead.are_limits_enabled():
-            # Only perform the limit check if the limits are enabled in the toolhead.
+        if any(limit_checks):
             self._check_endstops(move)
         
         # TODO: Update this part of the code to handle 

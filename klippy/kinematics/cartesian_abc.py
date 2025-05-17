@@ -319,7 +319,7 @@ class CartKinematicsABC(CartKinematics):
                 self.home_axis(homing_state, axis=axis, rail=self.rails[local_axis_index])
 
     def _check_endstops(self, move):
-        logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")
+        logging.info(f"endstop check: triggered on {self.axis_names}/{self.axis} move.")
         end_pos = move.end_pos
         for i, axis in enumerate(self.axis_config):
             # TODO: Check if its better to iterate over "self.axis" instead,
@@ -332,14 +332,20 @@ class CartKinematicsABC(CartKinematics):
             if (move.axes_d[axis]
                 and (end_pos[axis] < self.limits[i][0]
                      or end_pos[axis] > self.limits[i][1])):
+                # Target positions are out of bounds, but first check if this is due to unhomed axes.
                 if self.limits[i][0] > self.limits[i][1]:
                     # NOTE: self.limits will be "(1.0, -1.0)" when not homed, triggering this.
-                    msg = "".join([f"cartesian_abc._check_endstops: Must home axis {self.axis_names[i]} first,",
+                    msg = "".join([f"endstop check: Must home axis {self.axis_names[i]} first,",
                                    f"limits={self.limits[i]} end_pos[axis]={end_pos[axis]} ",
                                    f"move.axes_d[axis]={move.axes_d[axis]}"])
                     logging.info(msg)
                     raise move.move_error(f"Must home axis {self.axis_names[i]} first")
-                raise move.move_error()
+                # Not due to unhomed axes, raise an out of bounds move error.
+                if move.toolhead.are_limits_enabled():
+                    # Only perform the limit check if the limits are enabled in the toolhead.
+                    raise move.move_error()
+                else:
+                    logging.info(f"endstop check: limits are disabled in toolhead, skipping limit check on axis {axis}")
     
     # TODO: Use the original toolhead's z-axis limit here.
     # TODO: Think how to "sync" speeds with the original toolhead,
@@ -360,16 +366,8 @@ class CartKinematicsABC(CartKinematics):
             #       see rationale in favor of "axis_config" above, at "_check_endstops".
             pos = move.end_pos[axis]
             limit_checks.append(pos < self.limits[i][0] or pos > self.limits[i][1])
-        if any(limit_checks) and move.toolhead.are_limits_enabled():
-            # Only perform the limit check if the limits are enabled in the toolhead.
+        if any(limit_checks):
             self._check_endstops(move)
-        
-        # limits = self.limits
-        # apos, bpos = [move.end_pos[axis] for axis in self.axis[:2]]  # move.end_pos[3:6]
-        # logging.info("" + f"cartesian_abc.check_move: checking move ending on apos={apos} and bpos={bpos}.")
-        # if (apos < limits[0][0] or apos > limits[0][1]
-        #     or bpos < limits[1][0] or bpos > limits[1][1]):
-        #     self._check_endstops(move)
         
         # NOTE: check if the move involves the Z axis, to limit the speed.
         if "Z" not in self.axis_names.upper():
