@@ -196,7 +196,8 @@ class BedMesh:
         if self.z_mesh is None:
             # No mesh calibrated, so send toolhead position
             self.last_position[:] = self.toolhead.get_position()
-            self.last_position[2] -= self.fade_target
+            z_idx = self.toolhead.axis_map["Z"]
+            self.last_position[z_idx] -= self.fade_target
         else:
             # return current position minus the current z-adjustment
             x, y, z, e = self.toolhead.get_position("XYZE")
