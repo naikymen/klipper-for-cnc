@@ -94,6 +94,9 @@ This fork implements:
     - Known incompatibilites: `[probe_G38]`
 - The `SET_KINEMATIC_POSITION` command now works with extruder position as well.
     - Try this out: `SET_KINEMATIC_POSITION E=66.6`
+- Implemented the `M211` command, [as defined in Marlin](https://marlinfw.org/docs/gcode/M211.html).
+    - Execute `M211 S0` to **disable** kinematic limit checks, which will let you **crash and damage your machine** if you're not careful.
+    - Execute `M211 S1` to **enable** kinematic limit checks, which will prevent you from crashing and damaging your machine.
 - Absolute extruder moves are now absolute.
     - You can now rely on absolute coordinate systems staying that way unless you update them explicitly (e.g. with `G92 E0` and similar commands).
     - The extruder's coordinate origin used to be altered without warning after every tool-change (i.e. extruder activation) in a way equivalent to sending `G92 E0`. This means that the extruder's origins were effectively relative to the last position of the extruder before a toolchange, which was enforced in Klipper to support the obscure expectations of old slicers.
