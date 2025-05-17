@@ -573,7 +573,7 @@ class ProbeEndstopWrapper:
             config, 'deactivate_gcode', '')
         # Create an "endstop" object to handle the probe pin
         pin = config.get('pin')
-        logging.info(f"Setting endstop for '{mcu_probe_name}' using piun '{pin}'.")
+        logging.info(f"Setting endstop for '{mcu_probe_name}' using pin '{pin}'.")
         ppins = self.printer.lookup_object('pins')
         self.mcu_endstop = ppins.setup_pin('endstop', pin)
         # Wrappers

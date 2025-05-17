@@ -142,7 +142,7 @@ class ProbeG38:
         #       to this class.
         self.mcu_probe_name = mcu_probe_name
         self.probe = self.setup_probe(config)
-        self.printer: ConfigWrapper = config.get_printer()
+        self.printer: Printer = config.get_printer()
 
         # NOTE: dummy extrude factor
         self.extrude_factor = 1.0
@@ -184,6 +184,10 @@ class ProbeG38:
         self.gcode_move: GCodeMove = None
         self.printer.register_event_handler('klippy:mcu_identify',
                                             self._handle_mcu_identify)
+        
+        # NOTE: Register this object as the printer's 'probe' object,
+        #       making it available to other modules (e.g. bed mesh).
+        self.printer.add_object(self.mcu_probe_name, self)
 
     def setup_probe(self, config):
         """"Instantiate PrinterProbeG38 object.
