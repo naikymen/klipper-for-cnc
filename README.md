@@ -334,6 +334,7 @@ z_offset: 0
 Usage notes:
  
 - `[probe_G38]` is incompatible with `[probe_G38_multi extruder]`.
+- This registers a probe object under the usual "`probe`" name. This means that it can be used by other components, such as bed mesh.
 
 ### Multi-probing
 
@@ -364,6 +365,11 @@ recovery_time: 0.0
 pin: ^tools:PB1
 z_offset: 0
 ```
+
+Usage notes:
+ 
+- `[probe_G38]` is incompatible with `[probe_G38_multi extruder]`.
+- This registers a probe object under the provided name, prefixed by "`probe_`". This means that it **can not** be used by other components, such as bed mesh.
 
 For convenience, their status can show up next to the endstops in Mainsail:
 
