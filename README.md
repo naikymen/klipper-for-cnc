@@ -2,6 +2,8 @@
 
 Welcome to my fork of the Klipper project, with home-able extruders, configurable extra ABC axes, and CNC-style probing!
 
+This fork matches upstream Klipper features up to version `0.13`.
+
 Full changes and limitations stated further down this readme.
 
 Use cases: as far as I can tell.
@@ -26,6 +28,12 @@ Critical limitations: you should know this beforehand.
   - Note: motion on the ABC axes will not affect maximum speed of the XYZ axes, which will match the desired feedrate (`F` parameter).
 - Most of the modules in "extra" have not been tested and might not work as expected (e.g. the arcs module).
 - Limitations stated further down this readme.
+
+Roadmap:
+
+- Klipper `v0.13` has also started to modularize code to support additional axes without much hassle ([through `manual_stepper`](https://www.klipper3d.org/G-Codes.html#manual_stepper)). Once that work is complete, I'll merge the rest of the CNC features found here to a clean master branch.
+- Until then, I won't merge new commits from upstream, but will be active testing and pushing fixes.
+- After moving to the new multi-axis setup, I'll continue to maintain this fork (without the huge overhead of merging multi-axis code).
 
 Disclaimers:
 
@@ -86,10 +94,19 @@ This fork implements:
     - Known incompatibilites: `[probe_G38]`
 - The `SET_KINEMATIC_POSITION` command now works with extruder position as well.
     - Try this out: `SET_KINEMATIC_POSITION E=66.6`
+- Implemented the `M211` command, [as defined in Marlin](https://marlinfw.org/docs/gcode/M211.html).
+    - Execute `M211 S0` to **disable** kinematic limit checks, which will let you **crash and damage your machine** if you're not careful.
+    - Execute `M211 S1` to **enable** kinematic limit checks, which will prevent you from crashing and damaging your machine.
 - Absolute extruder moves are now absolute.
     - You can now rely on absolute coordinate systems staying that way unless you update them explicitly (e.g. with `G92 E0` and similar commands).
     - The extruder's coordinate origin used to be altered without warning after every tool-change (i.e. extruder activation) in a way equivalent to sending `G92 E0`. This means that the extruder's origins were effectively relative to the last position of the extruder before a toolchange, which was enforced in Klipper to support the obscure expectations of old slicers.
     - See discussion at: https://klipper.discourse.group/t/6558
+- A new `relative_e_restore` configuration parameter for the `[printer]` section was added. It allows to skip the restoration of the 'relative extruder "E" position' during a `RESTORE_GCODE_STATE` command, wich normally offsets the GCODE `base_position` of the extruder (making subsequent absolute moves relative to the restored position).
+    - By default, the effect of `RESTORE_GCODE_STATE` is equivalent to a G92 command with the saved position of the extruder.
+    - This means that absolute moves will be interpreted relatively to the restored extruder coordinate.
+    - For extruders this might make sense (at least in Klipper), but results in a problem with Mainsail, which saves and restores the GCODE state around manual move (e.g. after homing to 0 and a relative move to +3, an absolute move to 0 would do nothing against expectations).
+    - Maybe this is related to interrupting GCODE programs that use absolute coordinates for extruders, without messing them up when they resume if the extruder was moved (e.g. for a filament change).
+    - Set `relative_e_restore: False` under `[printer]` to disable this, [or hack Mainsail's macros](https://gitlab.com/pipettin-bot/pipettin-bot/-/blob/04197efe78d367d2ec5182f59db8b23af1685b30/code/klipper-setup/configs/mainsail_dummy.cfg#L29)
 - The PID controller now uses sample averaging and linear regression to compute the P and D terms, respectively.
     - This replaces the rather obscure pre-existing logic.
     - This brings much improvement for noisy ADCs, such as the one in my Arduino UNO.
@@ -111,6 +128,18 @@ Not-so-minor modifications to Klippy's core were made to accommodate these featu
 ### Pull requests
 
 Pull requests are very welcome over here, and will be merged quickly.
+
+### Testing
+
+I've added some notes on running the tests from the [tests](./test) directory. Have a look at the [README](./test/README.md) there.
+
+The tests are currently focused on the new features added by this fork.
+
+Relevant configuration and test definition files are:
+
+- [k4cnc.cfg](./test/klippy/k4cnc.cfg)
+- [k4cnc.test](./test/klippy/k4cnc.test)
+- [atmega644p.dict](./test/dicts/atmega644p.dict)
 
 ### Buy me a beer
 
@@ -150,7 +179,6 @@ Thanks to some [changes in upstream moonraker](https://github.com/Arksine/moonra
 See examples here:
 
 - <https://gitlab.com/pipettin-bot/pipettin-bot/-/tree/master/code/klipper-setup/configs>
-- <https://gitlab.com/pipettin-bot/forks/firmware/klipper-stack/-/tree/pipetting/printer_data/config>
 
 These are meant as _soft_ reference configs; you _must_ adjust them to match your setup before using them. Some of them may be outdated.
 
@@ -306,6 +334,7 @@ z_offset: 0
 Usage notes:
  
 - `[probe_G38]` is incompatible with `[probe_G38_multi extruder]`.
+- This registers a probe object under the usual "`probe`" name. This means that it can be used by other components, such as bed mesh.
 
 ### Multi-probing
 
@@ -315,6 +344,10 @@ For example, this means that:
 
 - `[probe_G38_multi extruder]` will be associated to the main `[extruder]`.
 - `[probe_G38_multi]` sections with names that do not match an extruder will only be usable through the `MULTIPROBE` set of commands.
+
+Example command (equivalent to G38.2): `MULTIPROBE2 PROBE_NAME=extruder1 Z=-20 F=1`
+
+To use a different G38 flavor, replace the `2` in `MULTIPROBE2` with `3`, `4`, or `5` for the other probing modes.
 
 Example configuration:
 
@@ -333,6 +366,11 @@ pin: ^tools:PB1
 z_offset: 0
 ```
 
+Usage notes:
+ 
+- `[probe_G38]` is incompatible with `[probe_G38_multi extruder]`.
+- This registers a probe object under the provided name, prefixed by "`probe_`". This means that it **can not** be used by other components, such as bed mesh.
+
 For convenience, their status can show up next to the endstops in Mainsail:
 
 ![query_probe_endstops.png](./docs/img/pipetting/query_probe_endstops.png)
@@ -343,11 +381,14 @@ For convenience, their status can show up next to the endstops in Mainsail:
 
 https://www.klipper3d.org/
 
-Klipper is a 3d-Printer firmware. It combines the power of a general
-purpose computer with one or more micro-controllers. See the
-[features document](https://www.klipper3d.org/Features.html) for more information on why you should use Klipper.
+The Klipper firmware controls 3d-Printers. It combines the power of a
+general purpose computer with one or more micro-controllers. See the
+[features document](https://www.klipper3d.org/Features.html) for more
+information on why you should use the Klipper software.
 
-To begin using Klipper start by [installing](https://www.klipper3d.org/Installation.html) it.
+Start by [installing Klipper software](https://www.klipper3d.org/Installation.html).
 
-Klipper is Free Software. See the [license](COPYING) or read the [documentation](https://www.klipper3d.org/Overview.html). We depend on
-the generous support from our [sponsors](https://www.klipper3d.org/Sponsors.html).
+Klipper software is Free Software. See the [license](COPYING) or read
+the [documentation](https://www.klipper3d.org/Overview.html). We
+depend on the generous support from our
+[sponsors](https://www.klipper3d.org/Sponsors.html).

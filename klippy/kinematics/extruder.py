@@ -149,22 +149,26 @@ class ExtruderStepper:
         self.motion_queue = extruder_name
 
     def check_move_limits(self, move):
-        """ExtruderStepper version of check_move_limits in toolhead.py"""
+        """ExtruderStepper version of check_move_limits in toolhead.py
+        Respects toolhead's limit_checks_enabled flag for position limits.
+        """
         epos = move.end_pos[-1]
 
-        if self.can_home:
+        # Only check limits if enabled in toolhead and stepper can home
+        if self.can_home and move.toolhead.are_limits_enabled():
             # NOTE: Software limit checks, borrowed from "cartesian.py".
             logging.info(f"extruder_stepper.check_move_limits: checking move ending on epos={epos} and limits={self.limits}")
             if (epos < self.limits[0][0] or epos > self.limits[0][1]):
                 self._check_endstops(move)
         else:
-            logging.info(f"extruder_stepper.check_move_limits: E stepper not home-able, skipping check on move ending on epos={epos}")
+            reason = "E stepper not home-able" if not self.can_home else "limit checks disabled"
+            logging.info(f"extruder_stepper.check_move_limits: {reason}, skipping check on move ending on epos={epos}")
 
     def _check_endstops(self, move):
         """ExtruderStepper version of _check_endstops in toolhead.py"""
 
         # NOTE: Software limit checks, borrowed from "cartesian.py".
-        logging.info(f"extruder_stepper._check_endstops: move limit check triggered.")
+        logging.info(f"extruder endstop check: move limit check triggered.")
         end_pos = move.end_pos[-1]
 
         # NOTE: Check if the extruder move is out of bounds.
@@ -172,13 +176,17 @@ class ExtruderStepper:
             # NOTE: The move is not allowed, check if this is due to unhomed axis.
             if self.limits[0][0] > self.limits[0][1]:
                 # NOTE: "self.limits" will be "(1.0, -1.0)" when not homed, triggering this.
-                logging.info(f"extruder._check_endstops: Must home extruder axis ({len(move.end_pos)}) first.")
+                logging.info(f"extruder endstop check: Must home extruder axis ({len(move.end_pos)}) first.")
                 raise move.move_error(f"Must home extruder axis ({len(move.end_pos)}) first.")
-            # NOTE: Else raise a move error without a message.
-            raise move.move_error()
+            # Not due to unhomed axes, raise an out of bounds move error.
+            if move.toolhead.are_limits_enabled():
+                # Only perform the limit check if the limits are enabled in the toolhead.
+                raise move.move_error()
+            else:
+                logging.info(f"extruder endstop check: limits are disabled in toolhead, skipping limit check on axis {axis}")
         else:
             # NOTE: Everything seems fine.
-            logging.info(f"extruder_stepper._check_endstops: The extruder's move to {end_pos} on axis {len(move.end_pos)} checks out.")
+            logging.info(f"extruder endstop check: The extruder's move to {end_pos} on axis {len(move.end_pos)} checks out.")
 
     def set_position(self, newpos_e, homing_e=False, print_time=None):
         """ExtruderStepper version of set_position in toolhead.py"""
@@ -188,9 +196,10 @@ class ExtruderStepper:
         #       calls set_position on each of the MCU_stepper objects
         #       in each PrinterRail.
         #       It eventually calls "itersolve_set_position".
+        # NOTE: The call to "trapq_set_position" is not needed here,
+        #       it is already done in PrinterExtruder.set_position.
         self.rail.set_position([newpos_e, 0., 0.])
 
-        # TODO: the "homing_axes" parameter is not used rait nau.
         # NOTE: Set limits if the axis is (being) homed.
         if homing_e and self.can_home:
             # NOTE: This will put the axis to a "homed" state, which means that
@@ -412,7 +421,7 @@ class PrinterExtruder:
         # NOTE: Software limit checks.
         self.extruder_stepper.check_move_limits(move)
 
-    def set_position(self, newpos_e, homing_axes=(), print_time=None):
+    def set_position(self, newpos_e, homing_axes:str="", print_time=None):
         """PrinterExtruder version of set_position in 'toolhead.py',
         called by its 'set_position_e' method.
         Should set the position in the 'trapq' and in the 'extruder kin'.
@@ -431,7 +440,7 @@ class PrinterExtruder:
         #       and appear as "homed".
         # NOTE: 'homing_axes' should contain a value equal to 'self.toolhead.pos_length'
         #       in this case (e.g. '4' in an XYZE setup). See 'cmd_HOME_EXTRUDER' at 'extruder_home.py'.
-        homing_e = self.axis_idx in homing_axes
+        homing_e = "e" in homing_axes.lower()
 
         # NOTE: Have the ExtruderStepper set its "MCU_stepper" position.
         self.extruder_stepper.set_position(newpos_e=newpos_e,

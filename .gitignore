@@ -7,3 +7,5 @@ klippy/.version
 klippy/extras/.ipynb_checkpoints*
 *.directory
 **/.vscode/*
+klippy-env/*
+_test*

@@ -136,67 +136,43 @@ class ForceMove:
     def cmd_SET_KINEMATIC_POSITION(self, gcmd):
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.get_last_move_time()
+        axis_letters = "".join(list(toolhead.axis_map))
         curpos = toolhead.get_position()
 
+        # Get the axes to be set as homed (defaults to all unless set).
+        set_homed = gcmd.get('SET_HOMED', axis_letters).lower()
         # Iterate over the names and indices of the axes in the main toolhead.
-        homing_axes = []
-        for axis_idx, axis_name in enumerate(list(toolhead.axis_map)):
-            # Try to find a value.
+        set_homed_axes = ""
+        for axis_idx, axis_name in enumerate(axis_letters):
+            # Grow the set homed axes string.
+            # NOTE: Here "axis_name" is upper-case, and "set_homed" is lower.
+            set_homed_axes += axis_name if axis_name in set_homed.upper() else ""
+            # Try to find a coordinate value for the axis.
             value = gcmd.get_float(axis_name, None)
             # If found, then the axis can be considered homed.
             if value is not None:
-                homing_axes.append(axis_idx)
                 curpos[axis_idx] = value
             # If not found, then the position remains the same.
-        # Set the position. Those axes in the homing_axes list will
+
+        # Compute the axes to un-home.
+        if gcmd.get('CLEAR_HOMED', None) is None:
+            # "CLEAR" is an alias for "CLEAR_HOMED"; should deprecate
+            clear_homed = gcmd.get('CLEAR', '').lower()
+        else:
+            clear_homed = gcmd.get('CLEAR_HOMED', '').lower()
+        clear_homed_axes = "".join([a for a in axis_letters.lower() if a in clear_homed])
+
+        # Set the position. Those axes in the "homing_axes" string will
         # be set as "homed" by downstream methods (specially kinematics).
-        logging.info(f"SET_KINEMATIC_POSITION: setting position with curpos={curpos} scanning axis_map={toolhead.axis_map} for commandline={gcmd.get_commandline()}")
-        toolhead.set_position(curpos, homing_axes=tuple(homing_axes))
+        logging.info(f"SET_KINEMATIC_POSITION: setting pos={curpos} set_homed={set_homed_axes} clear_homed={clear_homed_axes}")
+        logging.info(f"SET_KINEMATIC_POSITION: scanned axis_map={toolhead.axis_map} for commandline={gcmd.get_commandline()}")
+        toolhead.set_position(curpos, homing_axes=set_homed_axes)
 
-        # Set position on extra toolheads
-        # TODO: Must update all of this to accound for the new position vector 
-        #       (i.e. always full length, using -1 for the extruder).
-        for th_name in list(toolhead.extra_toolheads):
-            th = toolhead.extra_toolheads[th_name]
-            th.get_last_move_time()
-            curpos = th.get_position()
-            logging.info(f"SET_KINEMATIC_POSITION: setting position on th_name={th_name} with curpos={curpos} scanning axis_names={th.axis_names}")
-            for axis_idx, axis_name in enumerate(th.axis_names + "E"):
-                value = gcmd.get_float(axis_name, curpos[axis_idx])
-                curpos[axis_idx] = value
-            logging.info(f"SET_KINEMATIC_POSITION: setting position on th_name={th_name} with final curpos={curpos}")
-            th.set_position(curpos, 
-                            # Use a tuple with n+1, to include the extruder just in case.
-                            homing_axes=tuple(range(th.axis_count + 1)))
-
-        # TODO: remove old stuff.
-        # x = gcmd.get_float('X', curpos[0])
-        # y = gcmd.get_float('Y', curpos[1])
-        # z = gcmd.get_float('Z', curpos[2])
-        # e = gcmd.get_float('E', curpos[toolhead.axis_count])
-        
-        # logging.info("SET_KINEMATIC_POSITION: got pos=%.3f,%.3f,%.3f,%.3f", x, y, z, e)
-        # # NOTE: The "homing_axes" argument is used to
-        # #       set axis limits by the (cartesian) kinematics.
-        # #       Passing "3" for the extruder is not needed for now,
-        # #       and would proably fail.
-        # toolhead.set_position([x, y, z, e], homing_axes=(0, 1, 2))
-        
-        # TODO: Improve. This is a very crude/hardcoded implementation.
-        # if toolhead.axis_count >= 6:
-        #     if toolhead.axis_names[3:6] == "ABC":
-        #         a = gcmd.get_float('A', curpos[3])
-        #         b = gcmd.get_float('B', curpos[4])
-        #         c = gcmd.get_float('C', curpos[5])
-        #         logging.info("SET_KINEMATIC_POSITION pos=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f", x, y, z, a, b, c, e)
-        #         toolhead.set_position([x, y, z, a, b, c, e], homing_axes=(0, 1, 2, 3, 4, 5, 6))
-        # elif toolhead.axis_names == "XYZ":
-        #     logging.info("SET_KINEMATIC_POSITION pos=%.3f,%.3f,%.3f,%.3f", x, y, z, e)
-        #     # NOTE: The "homing_axes" argument is used to
-        #     #       set axis limits by the (cartesian) kinematics.
-        #     #       Passing "3" for the extruder is not needed for now,
-        #     #       and would proably fail.
-        #     toolhead.set_position([x, y, z, e], homing_axes=(0, 1, 2, 3))
+        # NOTE: Support new "CLEAR" option.
+        for axes in toolhead.kinematics.keys():
+            # Iterate over axis sets (XYZ, ABC, etc.).
+            clear_axes = ''.join([a for a in axes.lower() if a in clear_homed_axes])
+            toolhead.get_kinematics(axes=axes).clear_homing_state(clear_axes)
 
 def load_config(config):
     return ForceMove(config)

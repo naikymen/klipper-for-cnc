@@ -34,8 +34,8 @@ class CoreXYKinematicsABC:
             msg = "CoreXYKinematicsABC: Only the full 'XYZ' configuration is supported in corexy for now."
             raise self.printer.config_error(msg)
         
-        # Save utilities for later.
-        self.axes_to_xyz = toolhead.axes_to_xyz
+        # Save toolhead utilities for later.
+        self.abc_axes_to_xyz = toolhead.abc_axes_to_xyz
         
         # Configured set of axes (indexes) and their letter IDs. Can have length less or equal to 3.
         self.axis_config = deepcopy(axes_ids)   # list of length <= 3: [0, 1, 3], [3, 4], [3, 4, 5], etc.
@@ -117,10 +117,6 @@ class CoreXYKinematicsABC:
             #       the "self.step_generators" list in the toolhead,
             #       or to the list in the new TrapQ...
             #       Using the toolhead for now.
-
-        # Register a handler for turning off the steppers.
-        self.printer.register_event_handler("stepper_enable:motor_off",
-                                            self._motor_off)
         
         # NOTE: Get "max_velocity" and "max_accel" from the toolhead's config.
         #       Used below as default values.
@@ -174,24 +170,34 @@ class CoreXYKinematicsABC:
         xyz_pos = [0.5 * (pos[0] + pos[1]), 0.5 * (pos[0] - pos[1]), pos[2]]
         return xyz_pos
     
-    def set_position(self, newpos, homing_axes):
+    def set_position(self, newpos, homing_axes: str):
+        """
+        Set the position of the corexy kinematic.
+
+        Args:
+            newpos: The new position of the kinematic.
+            homing_axes: The axes to home (any of "xyz").
+        
+        Example:
+            newpos = (0.0, 0.0, 66.0, 0.0, 0.0, 0.0)
+            kinematics.set_position(newpos, "z")
+        """
         for i, rail in enumerate(self.rails):
             rail.set_position(newpos)
-            if i in homing_axes:
+            # NOTE: Only 'xyz' axes are supported, hence axis_names is always 'xyz'.
+            if self.axis_names.lower()[i] in homing_axes:
                 self.limits[i] = rail.get_range()
     
-    def note_z_not_homed(self):
-        # Helper for Safe Z Home
-        # NOTE: This will surely not cause a crash, since for now I'd
-        #       require a CoreXY Kinematic to be setup with a Z axis.
-        if "Z" in self.axis_names:
-            # Helper for Safe Z Home
-            self.limits[self.axis_map["Z"]] = (1.0, -1.0)
+    def clear_homing_state(self, clear_axes: str):
+        for axis, axis_name in enumerate(self.axis_names.lower()):
+            if axis_name in clear_axes:
+                self.limits[axis] = (1.0, -1.0)
 
     def home(self, homing_state):
         # Each axis is homed independently and in order
         for axis in homing_state.get_axes():
-            rail_index = self.axes_to_xyz(axis)
+            # Here I need to convert the axis (e.g. "x") to a local rail index (e.g. 0).
+            rail_index = self.abc_axes_to_xyz(self.axis_map_rev[axis])
             self.home_axis(homing_state, axis, self.rails[rail_index])
     
     def home_axis(self, homing_state, axis, rail):
@@ -208,9 +214,6 @@ class CoreXYKinematicsABC:
         # Perform homing
         homing_state.home_rails([rail], forcepos, homepos)
     
-    def _motor_off(self, print_time):
-        self.reset_limits()
-    
     def _check_endstops(self, move):
         end_pos = move.end_pos
         for i, axis in enumerate(self.axis_config):
@@ -219,14 +222,27 @@ class CoreXYKinematicsABC:
                      or end_pos[axis] > self.limits[i][1])):
                 if self.limits[i][0] > self.limits[i][1]:
                     # NOTE: self.limits will be "(1.0, -1.0)" when not homed, triggering this.
-                    msg = f"corexy_abc._check_endstops: Must home axis {self.axis_names[i]} first,"
+                    msg = f"endstop check: Must home axis {self.axis_names[i]} first,"
                     msg += f"limits={self.limits[i]} end_pos[axis]={end_pos[axis]} "
                     msg += f"move.axes_d[axis]={move.axes_d[axis]}"
                     logging.info(msg)
                     raise move.move_error(f"Must home axis {self.axis_names[i]} first")
-                raise move.move_error()
+                # Not due to unhomed axes, raise an out of bounds move error.
+                if move.toolhead.are_limits_enabled():
+                    # Only perform the limit check if the limits are enabled in the toolhead.
+                    raise move.move_error()
+                else:
+                    logging.info(f"endstop check: limits are disabled in toolhead, skipping limit check on axis {axis}")
     
     def check_move(self, move):
+        """Checks a move for validity.
+        
+        Also limits the move's max speed to the limit of the Z axis if used.
+        Respects toolhead's limit_checks_enabled flag for position limits.
+
+        Args:
+            move (tolhead.Move): Instance of the Move class.
+        """
         limit_checks = []
         for i, axis in enumerate(self.axis_config):
             # TODO: Check if its better to iterate over "self.axis" instead,

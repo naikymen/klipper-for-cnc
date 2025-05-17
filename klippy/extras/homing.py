@@ -1,6 +1,6 @@
 # Helper code for implementing homing operations
 #
-# Copyright (C) 2016-2021  Kevin O'Connor <kevin@koconnor.net>
+# Copyright (C) 2016-2024  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..toolhead import ToolHead
+    from .probe import ProbeEndstopWrapper
 # pylint: disable=missing-class-docstring,missing-function-docstring,invalid-name,line-too-long,consider-using-f-string,multiple-imports,wrong-import-position
 # pylint: disable=logging-fstring-interpolation,logging-not-lazy,fixme
 
@@ -43,6 +44,7 @@ class StepperPosition:
         self.endstop_name = endstop_name
         self.stepper_name = stepper.get_name()
         self.start_pos = stepper.get_mcu_position()
+        self.start_cmd_pos = stepper.mcu_to_commanded_position(self.start_pos)
         self.halt_pos = self.trig_pos = None
         logging.info(f"homing.StepperPosition: add stepper {self.stepper_name} to endstop {self.endstop_name}")
     def note_home_end(self, trigger_time):
@@ -53,6 +55,12 @@ class StepperPosition:
         # NOTE: uses "stepcompress_find_past_position" to:
         #       "Search history of moves to find a past position at a given clock"
         self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
+    def verify_no_probe_skew(self, haltpos):
+        new_start_pos = self.stepper.get_mcu_position(self.start_cmd_pos)
+        if new_start_pos != self.start_pos:
+            logging.warning(
+                "Stepper '%s' position skew after probe: pos %d now %d",
+                self.stepper.get_name(), self.start_pos, new_start_pos)
 
 # Implementation of homing/probing moves
 class HomingMove:
@@ -173,7 +181,7 @@ class HomingMove:
                     triggered=True, check_triggered=True):
         """Called by the 'home_rails' or 'manual_home' methods."""
         # Notify start of homing/probing move
-        self.printer.send_event(self.toolhead.event_prefix + "homing:homing_move_begin", self)
+        self.printer.send_event("homing:homing_move_begin", self)
         logging.info("homing.homing_move: homing move called, starting setup.")
 
         # Note start location
@@ -300,8 +308,10 @@ class HomingMove:
             haltpos = trigpos = self.calc_toolhead_pos(kin_spos=kin_spos,
                                                        offsets=trig_steps)
             if trig_steps != halt_steps:
-                haltpos = self.calc_toolhead_pos(kin_spos=kin_spos,
-                                                 offsets=halt_steps)
+                haltpos = self.calc_toolhead_pos(kin_spos, halt_steps)
+            self.toolhead.set_position(haltpos)
+            for sp in self.stepper_positions:
+                sp.verify_no_probe_skew(haltpos)
         else:
             haltpos = trigpos = movepos
             # NOTE: calculate "oversteps" after triggering, for each
@@ -320,18 +330,20 @@ class HomingMove:
                 # NOTE: Get the stepper "halt_kin_spos" (halting positions).
                 halt_kin_spos = self.calc_halt_kin_spos(extruder_steppers)
 
-                # NOTE: Calculate the "actual" halting position in distance units.
+                # NOTE: Calculate the "actual" halting position in distance units,
+                #       that can differ from the endstop trigger position.
                 haltpos = self.calc_toolhead_pos(kin_spos=halt_kin_spos,
                                                  offsets=over_steps)
+                # NOTE: for extruder_home this could be:
+                #           set_position: input=[-1.420625, 0.0, 0.0, 0.0] homing_axes=()
+                #       The fourt element comes from "newpos_e" in the call to
+                #       "toolhead.set_position" above. The first element is the corrected
+                #       "halt" position.
 
-        # NOTE: set the toolhead position to the (corrected) halting position.
-        # NOTE: for extruder_home this could be:
-        #           set_position: input=[-1.420625, 0.0, 0.0, 0.0] homing_axes=()
-        #       The fourt element comes from "newpos_e" in the call to
-        #       "toolhead.set_position" above. The first element is the corrected
-        #       "halt" position.
-        logging.info("homing.homing_move: setting position.")
-        self.toolhead.set_position(haltpos)
+            # Set the toolhead position to the halting position.
+            self.toolhead.set_position(haltpos)
+        logging.info(f"homing.homing_move: endstop trigger position trigpos={trigpos}")
+        logging.info(f"homing.homing_move: toolhead position set to haltpos={haltpos}")
 
         # Signal homing/probing move complete
         try:
@@ -340,7 +352,7 @@ class HomingMove:
             #       - probe.py
             #       - tmc.py
             #       Probably not relevant to extruder homing.
-            self.printer.send_event(self.toolhead.event_prefix + "homing:homing_move_end", self)
+            self.printer.send_event("homing:homing_move_end", self)
         except self.printer.command_error as e:
             if error is None:
                 error = str(e)
@@ -376,44 +388,72 @@ class HomingMove:
 
         return halt_kin_spos
 
-    def check_no_movement(self, axes=None):
+    def check_no_movement(self, axes: list[str] | None = None):
         """
-        axes: list of the axes moving in a G38 probing move (x, y, z, extruder/extruder1). See "probe_axes".
+        Check that no movement occurred during the homing move.
+
+        It is meant to detect when the printer has probed without moving at all,
+        which can happen when the printer is already in the trigger position,
+        or if an endstop is stuck.
+        
+        If the check fails, the homing move is stopped and an error is raised.
+        
+        Args:
+            axes: list[str] | None = None
+                List of the axes moving in a G38 probing move (x, y, z, extruder/extruder1).
+                See "probe_axes". If specified, only the axes in the list are checked.
+                Otherwise, all axes are checked.
+
+        Example:
+            >>> # Check that the X and Y axes moved during the homing move
+            >>> self.homing.check_no_movement(axes=["x", "y"])
+            >>> self.homing.check_no_movement(axes=["extruder1"])
+        
+        Returns:
+            str: The name of the first endstop that failed the check,
+                 or None if no endstop failed the check.
         """
+        logging.info(f"check_no_movement with axes={axes}")
+
         if self.printer.get_start_args().get('debuginput') is not None:
             return None
 
-        logging.info(f"check_no_movement with axes={axes}")
+        if axes is None:
+            # Early return if no movement detected when no axis is specified.
+            moved_motors = []
+            # Note which steppers moved by their name.
+            for sp in self.stepper_positions:
+                if sp.start_pos != sp.trig_pos:
+                    moved_motors.append(sp.stepper_name)
+            # If no steppers moved, return the first endstop's name.
+            if not moved_motors:
+                logging.info("check_no_movement: no movement detected")
+                return self.stepper_positions[0].endstop_name
+        else:
+            # NOTE: from the StepperPosition class:
+            #       -   self.start_pos = stepper.get_mcu_position()
+            #       -   self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
+            for sp in self.stepper_positions:
+                sp_name = sp.stepper_name
 
-        # NOTE: from the StepperPosition class:
-        #       -   self.start_pos = stepper.get_mcu_position()
-        #       -   self.trig_pos = self.stepper.get_past_mcu_position(trigger_time)
-        for sp in self.stepper_positions:
-            sp_name = sp.stepper_name
+                if sp.start_pos == sp.trig_pos:
+                    # One of the steppers in the axes list has not moved.
+                    # NOTE: Optionally return only if the stepper was involved in the probing.
 
-            if sp.start_pos == sp.trig_pos:
-                # NOTE: Optionally return only if the stepper was involved in the probing.
-
-                # NOTE: default behaviour, consider all steppers.
-                if axes is None:
-                    logging.info(f"check_no_movement matched stepper with default behaviour: {sp_name}")
-                    return sp.endstop_name
-
-                # NOTE: This is the "G38" behaviour.
-                # NOTE: Handle extruder steppers.
-                elif sp_name.lower().startswith("extruder"):
-                    if any(axis.lower() == sp_name.lower() for axis in axes):
-                        # NOTE: If the stepper that did not move was the "active" one, return.
-                        logging.info(f"check_no_movement matched stepper with G38 behaviour: {sp_name}")
+                    # NOTE: This is the "G38" behaviour.
+                    # NOTE: Handle extruder steppers.
+                    if sp_name.lower().startswith("extruder"):
+                        if any(axis.lower() == sp_name.lower() for axis in axes):
+                            # NOTE: If the stepper that did not move was the "active" one, return.
+                            logging.info(f"check_no_movement matched extruder stepper with G38 behaviour: {sp_name}")
+                            return sp.endstop_name
+                    # NOTE: Handle the XYZ axes.
+                    elif any(axis.lower() in sp_name.lower() for axis in axes if axis in "xyz"):
+                        # NOTE: "Will return True if any of the substrings (axis)
+                        #       in substring_list (axes) is contained in string (sp_name)."
+                        #       See https://stackoverflow.com/a/8122096/11524079
+                        logging.info(f"check_no_movement matched kinematics stepper with G38 behaviour: {sp_name}")
                         return sp.endstop_name
-                # NOTE: Handle the XYZ axes.
-                elif any(axis.lower() in sp_name.lower() for axis in axes if axis in "xyz"):
-                    # NOTE: "Will return True if any of the substrings (axis)
-                    #       in substring_list (axes) is contained in string (sp_name)."
-                    #       See https://stackoverflow.com/a/8122096/11524079
-                    logging.info(f"check_no_movement matched stepper with G38 behaviour: {sp_name}")
-                    return sp.endstop_name
-
         return None
 
 # State tracking of homing requests
@@ -429,9 +469,9 @@ class Homing:
         self.changed_axes = []
         self.trigger_mcu_pos = {}
         self.adjust_pos = {}
-    def set_axes(self, axes):
+    def set_axes(self, axes: list[int]):
         self.changed_axes = axes
-    def get_axes(self):
+    def get_axes(self) -> list[int]:
         return self.changed_axes
     def get_trigger_position(self, stepper_name):
         return self.trigger_mcu_pos[stepper_name]
@@ -466,19 +506,20 @@ class Homing:
         logging.info(f"homing.home_rails: homing begins with forcepos={forcepos} and movepos={movepos}")
 
         # Notify of upcoming homing operation
-        self.printer.send_event(self.toolhead.event_prefix + "homing:home_rails_begin", self, rails)
+        self.printer.send_event("homing:home_rails_begin", self, rails)
         # self.printer.send_event("homing:home_rails_begin", self, rails)
 
         # Alter kinematics class to think printer is at forcepos
         # NOTE: Get the axis IDs of each non-null axis in forcepos.
-        homing_axes = [axis for axis in range(self.toolhead.pos_length-1) if forcepos[axis] is not None]
+        force_axes = [axis for axis in range(self.toolhead.pos_length-1) if forcepos[axis] is not None]
         # NOTE: fill each "None" position values with the
         #       current position (from toolhead.get_position)
         #       of the corresponding axis.
+        homing_axes = "".join(self.toolhead.axes_to_names(force_axes)).lower()
         startpos = self._fill_coord(forcepos)
         homepos = self._fill_coord(movepos)
         # NOTE: esto usa "trapq_set_position" sobre el trapq del XYZ.
-        # NOTE: homing_axes se usa finalmente en "CartKinematics.set_position",
+        # NOTE: Este "homing_axes" se usa finalmente en "CartKinematics.set_position",
         #       para asignarle limites a los "rails" que se homearon.
         self.toolhead.set_position(startpos, homing_axes=homing_axes)
 
@@ -500,10 +541,12 @@ class Homing:
 
             axes_d = [hp - sp for hp, sp in zip(homepos, startpos)]
 
-            # TODO: consider using all coordinates, not just XYZ(ABC).
+            # NOTE: Using all coordinates, not just XYZ(ABC).
             move_d = math.sqrt(sum([d*d for d in axes_d[:-1]]))
 
+            # Fraction of the total distance of the homing move that corresponds to retraction
             retract_r = min(1., hi.retract_dist / move_d)
+            # The retraction position is someway between the initial and final position of the total homing move.
             retractpos = [hp - ad * retract_r
                           for hp, ad in zip(homepos, axes_d)]
 
@@ -513,6 +556,7 @@ class Homing:
             # Home again
             startpos = [rp - ad * retract_r
                         for rp, ad in zip(retractpos, axes_d)]
+            logging.info(f"homing.home_rails: issuing second homing move with startpos={startpos}")
             self.toolhead.set_position(startpos)
             hmove = HomingMove(self.printer, endstops,
                                # NOTE: Force use of a specific toolhead.
@@ -533,7 +577,7 @@ class Homing:
         self.trigger_mcu_pos = {sp.stepper_name: sp.trig_pos
                                 for sp in hmove.stepper_positions}
         self.adjust_pos = {}
-        self.printer.send_event(self.toolhead.event_prefix + "homing:home_rails_end", self, rails)
+        self.printer.send_event("homing:home_rails_end", self, rails)
         if any(self.adjust_pos.values()):
             # Apply any homing offsets
             homepos = self.toolhead.get_position()
@@ -555,7 +599,7 @@ class Homing:
                 # NOTE: Build the "newpos" list with elements from each kinematic.
                 newpos.extend(kin.calc_position(kin_spos))
 
-            for axis in homing_axes:
+            for axis in force_axes:
                 homepos[axis] = newpos[axis]
             self.toolhead.set_position(homepos)
 
@@ -564,11 +608,6 @@ class Homing:
 class PrinterHoming:
     def __init__(self, config):
         self.printer = config.get_printer()
-
-        # Main toolhead object "id". It is used instead of loading the toolhead object,
-        # because it might not be ready at this stage, but we still need the methods below
-        # to be able to grab a different toolhead object when subclassing this elsewhere.
-        self.toolhead_id = 'toolhead'
 
         # Register g-code commands
         gcode = self.printer.lookup_object('gcode')
@@ -588,7 +627,7 @@ class PrinterHoming:
                     "Homing failed due to printer shutdown")
             raise
 
-    def probing_move(self, mcu_probe, pos, speed, check_triggered=True,
+    def probing_move(self, mcu_probe: ProbeEndstopWrapper, pos, speed, check_triggered=True,
                      # NOTE: Add a "triggered" argument. This is eventually used
                      #       to invert the probing logic at "_home_cmd.send()"
                      #       in "mcu.py" to make the low-level "endstop_home" MCU command.
@@ -598,14 +637,28 @@ class PrinterHoming:
                      triggered=True,
                      # NOTE: "probe_axes" should be a list of the axes
                      #       moving in this probing move.
-                     probe_axes=None):
+                     probe_axes: list[str] | None = None):
         """
-        mcu_probe
-        pos
-        speed
-        check_triggered
-        triggered: logic invert for the endstop trigger.
-        probe_axes: list of the axes moving in this probing move (x, y, z, extruder/extruder1).
+        Perform a probing move. This is a move that will trigger the mcu_probe
+        endstop and update the toolhead's position accordingly. The move is
+        performed at the specified speed and will stop when the probe is
+        triggered or the move is complete.
+
+        Parameters:
+        mcu_probe (ProbeEndstopWrapper): The probe endstop to use for this move.
+        pos (list): The position to move to. This is a list of 3 or 4 elements
+            (x, y, z, and optionally e) that specify the absolute position
+            to move to.
+        speed (float): The speed to perform the move at.
+        check_triggered (bool): If true, raise an exception if the probe is
+            already triggered before the move begins. If false, the move will
+            still be performed but the probe trigger will be ignored.
+        triggered (bool): If true, the trigger logic for the endstop will be
+            inverted. This is used by the G38.4/5 commands to probe away from
+            the workpiece.
+        probe_axes (list): A list of the axes moving in this probing move.
+            This should be a list of strings, each of which is one of "x", "y",
+            "z", or "extruder" (or "extruder1" if there are multiple extruders).
         """
 
         endstops = [(mcu_probe, "probe")]
@@ -629,7 +682,6 @@ class PrinterHoming:
         #       "check_no_movement" looks at the stepper
         #       start and trigger positions. If they are
         #       the same, then the error below is raised.
-        #           "Probe triggered prior to movement"
         if hmove.check_no_movement(axes=probe_axes) is not None:
             raise self.printer.command_error(
                 "Probe triggered prior to movement")
@@ -641,7 +693,7 @@ class PrinterHoming:
     def cmd_G28(self, gcmd):
         logging.info(f"PrinterHoming.cmd_G28: homing with command={gcmd.get_commandline()}")
 
-        toolhead = self.printer.lookup_object(self.toolhead_id)
+        toolhead = self.printer.lookup_object('toolhead')
         # Move to origin
         axes = []
         # NOTE: Iterate over XYZ... excluding the E axis.
@@ -677,34 +729,31 @@ class PrinterHoming:
             if any(i in kin.axis for i in axes):
                 # NOTE: The "kin.axis" object contains indexes for the axies it handles.
                 #       For example: [0, 1, 2] for XYZ, [3, 4] for AB, etc.
-                homing_axes = [a for a in axes if a in kin.axis]
-                logging.info(f"PrinterHoming.cmd_G28: homing {homing_axes} axes of the {kin.axis} kinematic.")
+                homing_axes = [kin.axis_map_rev[a] for a in axes if a in kin.axis]
+                logging.info(f"PrinterHoming.cmd_G28: homing {homing_axes} axes of the {kin_axes} kinematic (axes: {kin.axis}).")
                 self.home_axes(kin=kin, homing_axes=homing_axes)
 
-    def home_axes(self, kin, homing_axes):
+    def home_axes(self, kin, homing_axes: str):
         """Home the requested axis on the specified kinematics.
 
         Args:
             kin (kinematics): Kinematics class for the axes.
-            homing_axes (list): List of axis, coherced internally to [0,1,2].
+            homing_axes (str): String of axis (e.g. "xyz", "abc").
 
         Raises:
             self.printer.command_error: _description_
         """
-        # NOTE: Convert ABC axis IDs to XYZ IDs (i.e. 3,4,5 to 0,1,2).
-        #       Not useful, adapting "home_rails" would have been complicated.
-        # axes = self.axes_to_xyz(homing_axes)
-        axes = homing_axes
-        logging.info(f"PrinterHoming.home_axes: homing axis={homing_axes} on toolhead={self.toolhead_id}")
+        logging.info(f"PrinterHoming.home_axes: homing axis={homing_axes}")
 
         # NOTE: Instance a "Homing" object, passing it the toolhead of this PrinterHoming instance.
         #       This is important because subclasses of PrinterHoming might be associated to another toolhead.
-        toolhead = self.printer.lookup_object(self.toolhead_id)
+        toolhead = self.printer.lookup_object('toolhead')
         homing_state = Homing(printer=self.printer, toolhead=toolhead)
 
         # NOTE: Update the "self.changed_axes" attribute, to indicate
         #       which axes will be homed (e.g. 0 for X, 1 for Y, ...).
-        homing_state.set_axes(axes)
+        xyz_homing_axes = [toolhead.axis_map[a] for a in homing_axes]
+        homing_state.set_axes(xyz_homing_axes)
 
         # NOTE: Let the "kinematics" object decide how to home the requested axes.
         try:

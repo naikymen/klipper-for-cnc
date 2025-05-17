@@ -34,7 +34,6 @@ class ManualStepper:
 
         # NOTE: Additional objects required by "HomingMove.homing_move", needed
         #       to home the manual stepper. See notes below, at "do_homing_move".
-        self.event_prefix=""
         self.kinematics={"m": self}
 
         # Register commands
@@ -222,7 +221,7 @@ class ManualStepper:
         self.sync_print_time()
     def get_position(self):
         return [self.rail.get_commanded_position(), 0., 0., 0.]
-    def set_position(self, newpos, homing_axes=()):
+    def set_position(self, newpos, homing_axes=""):
         self.do_set_position(newpos[0])
     def get_last_move_time(self):
         self.sync_print_time()

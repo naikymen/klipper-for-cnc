@@ -87,6 +87,9 @@ class CartKinematicsABC(CartKinematics):
         self.dummy_axes = list(set(self.axis).difference(self.axis_config))
         # Get the axis names of these "Dummy axes".
         self.dummy_axes_names = ["XYZABCUVW"[i] for i in self.dummy_axes]
+
+        # Save the toolhead
+        self.toolhead = toolhead
         
         # Total axis count from the toolhead.
         self.toolhead_axis_count = toolhead.axis_count  # len(self.axis_names)
@@ -145,7 +148,7 @@ class CartKinematicsABC(CartKinematics):
         # Check for dual carriage support
         if config.has_section('dual_carriage'):
             dc_config = config.getsection('dual_carriage')
-            dc_axis = dc_config.getchoice('axis', {'x': 'x', 'y': 'y'})
+            dc_axis = dc_config.getchoice('axis', ['x', 'y'])
             self.dual_carriage_axis = {'x': 0, 'y': 1}[dc_axis]
             # setup second dual carriage rail
             self.rails.append(stepper.LookupMultiRail(dc_config))
@@ -170,10 +173,6 @@ class CartKinematicsABC(CartKinematics):
             #       the "self.step_generators" list in the toolhead,
             #       or to the list in the new TrapQ...
             #       Using the toolhead for now.
-        
-        # Register a handler for turning off the steppers.
-        self.printer.register_event_handler("stepper_enable:motor_off",
-                                            self._motor_off)
         
         # NOTE: Get "max_velocity" and "max_accel" from the toolhead's config.
         #       Used below as default values.
@@ -236,12 +235,12 @@ class CartKinematicsABC(CartKinematics):
         if l <= h:
             self.limits[i] = range
 
-    def set_position(self, newpos, homing_axes):
+    def set_position(self, newpos, homing_axes: str):
         """Set the position of the kinematics
 
         Args:
             newpos (list): 3-element list with the new positions for the kinematics.
-            homing_axes (tuple): 3-element tuple indicating the axes that should have their limits defined (i.e. set as homed).
+            homing_axes (str): String of lowercase characters (i.e. 'xyz', 'abc') indicating the axes that should have their limits defined (i.e. set as homed).
         """
         logging.info(f"CartKinematicsABC.set_position: setting kinematic position of {len(self.rails)} rails " +
                      f"with newpos={newpos} and homing_axes={homing_axes}")
@@ -256,16 +255,18 @@ class CartKinematicsABC(CartKinematics):
             rail.set_position(newpos)
 
         # NOTE: Set limits if the axis is (being) homed.
-        for axis in homing_axes:
+        for axis_name in homing_axes:
+            # Convert axis name to integer index (in the local 0,1,2 range).
+            axis: int = self.axis_names.lower().index(axis_name)
             # Get the proper rail for the "dual-carriage" case.
             if self.dc_module and axis == self.dc_module.axis:
                 rail = self.dc_module.get_primary_rail().get_rail()
-            elif axis not in self.axis_local:
-                msg = f"CartKinematicsABC warning: not setting limits on local axis {axis} as it"
-                msg += f" is not in the local list of configured axes: {self.axis_local}"
-                logging.warning(msg)
-                continue
             else:
+                if axis not in self.axis_local:
+                    msg = f"CartKinematicsABC warning: not setting limits on local axis {axis} as it"
+                    msg += f" is not in the local list of configured axes: {self.axis_local}"
+                    logging.warning(msg)
+                    continue
                 rail = self.rails[axis]
             # NOTE: Here each limit becomes associated to a certain "rail" (i.e. an axis).
             #       If the rails were set up as "XYZ" in that order (as per "self.axis_names"),
@@ -277,12 +278,20 @@ class CartKinematicsABC(CartKinematics):
             logging.info(f"CartKinematicsABC: setting limits={rail.get_range()} on stepper: {rail.get_name()}")
             self.limits[axis] = rail.get_range()
 
-    def note_z_not_homed(self):
-        if "Z" in self.axis_names:
-            # Helper for Safe Z Home
-            self.limits[self.axis_map["Z"]] = (1.0, -1.0)
+    def clear_homing_state(self, clear_axes: str):
+        """
+        Clear the homing state of the specified axes. This sets the limits of
+        the cleared axes to (-1.0, 1.0) and allows the kinematic move check to
+        pass for those axes.
 
-    def home_axis(self, homing_state: Homing, axis, rail):
+        Parameters:
+            clear_axes (str): Axis names to clear the homing state on (lower case).
+        """
+        for axis, axis_name in enumerate(self.axis_names):
+            if axis_name.lower() in clear_axes:
+                self.limits[axis] = (1.0, -1.0)
+
+    def home_axis(self, homing_state: Homing, axis: int, rail):
         # Determine movement
         position_min, position_max = rail.get_range()
         hi = rail.get_homing_info()
@@ -301,19 +310,16 @@ class CartKinematicsABC(CartKinematics):
         # NOTE: "homing_state" is an instance of the "Homing" class.
         logging.info(f"cartesian_abc.home: homing axis changed_axes={homing_state.changed_axes}")
         # Each axis is homed independently and in order
-        toolhead = self.printer.lookup_object('toolhead')
         for axis in homing_state.get_axes():
             # TODO: WARNING support for dual carriage untested.
             if self.dc_module is not None and axis == self.dual_carriage_axis:
                 self.dc_module.home(homing_state)
             else:
-                self.home_axis(homing_state, axis, self.rails[toolhead.axes_to_xyz(axis)])
-    
-    def _motor_off(self, print_time):
-        self.reset_limits()
-    
+                local_axis_index = self.toolhead.abc_axes_to_xyz(axis)
+                self.home_axis(homing_state, axis=axis, rail=self.rails[local_axis_index])
+
     def _check_endstops(self, move):
-        logging.info(f"cartesian_abc._check_endstops: triggered on {self.axis_names}/{self.axis} move.")
+        logging.info(f"endstop check: triggered on {self.axis_names}/{self.axis} move.")
         end_pos = move.end_pos
         for i, axis in enumerate(self.axis_config):
             # TODO: Check if its better to iterate over "self.axis" instead,
@@ -326,14 +332,20 @@ class CartKinematicsABC(CartKinematics):
             if (move.axes_d[axis]
                 and (end_pos[axis] < self.limits[i][0]
                      or end_pos[axis] > self.limits[i][1])):
+                # Target positions are out of bounds, but first check if this is due to unhomed axes.
                 if self.limits[i][0] > self.limits[i][1]:
                     # NOTE: self.limits will be "(1.0, -1.0)" when not homed, triggering this.
-                    msg = "".join([f"cartesian_abc._check_endstops: Must home axis {self.axis_names[i]} first,",
+                    msg = "".join([f"endstop check: Must home axis {self.axis_names[i]} first,",
                                    f"limits={self.limits[i]} end_pos[axis]={end_pos[axis]} ",
                                    f"move.axes_d[axis]={move.axes_d[axis]}"])
                     logging.info(msg)
                     raise move.move_error(f"Must home axis {self.axis_names[i]} first")
-                raise move.move_error()
+                # Not due to unhomed axes, raise an out of bounds move error.
+                if move.toolhead.are_limits_enabled():
+                    # Only perform the limit check if the limits are enabled in the toolhead.
+                    raise move.move_error()
+                else:
+                    logging.info(f"endstop check: limits are disabled in toolhead, skipping limit check on axis {axis}")
     
     # TODO: Use the original toolhead's z-axis limit here.
     # TODO: Think how to "sync" speeds with the original toolhead,
@@ -342,6 +354,7 @@ class CartKinematicsABC(CartKinematics):
         """Checks a move for validity.
         
         Also limits the move's max speed to the limit of the Z axis if used.
+        Respects toolhead's limit_checks_enabled flag for position limits.
 
         Args:
             move (tolhead.Move): Instance of the Move class.
@@ -355,13 +368,6 @@ class CartKinematicsABC(CartKinematics):
             limit_checks.append(pos < self.limits[i][0] or pos > self.limits[i][1])
         if any(limit_checks):
             self._check_endstops(move)
-        
-        # limits = self.limits
-        # apos, bpos = [move.end_pos[axis] for axis in self.axis[:2]]  # move.end_pos[3:6]
-        # logging.info("" + f"cartesian_abc.check_move: checking move ending on apos={apos} and bpos={bpos}.")
-        # if (apos < limits[0][0] or apos > limits[0][1]
-        #     or bpos < limits[1][0] or bpos > limits[1][1]):
-        #     self._check_endstops(move)
         
         # NOTE: check if the move involves the Z axis, to limit the speed.
         if "Z" not in self.axis_names.upper():

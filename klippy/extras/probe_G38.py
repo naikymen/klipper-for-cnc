@@ -137,12 +137,13 @@ class ProbeG38:
       - Added "set_position_e" to the toolhead.
     """
     def __init__(self, config: ConfigWrapper, mcu_probe_name: str = 'probe'):
+        # Save printer object.
+        self.printer: Printer = config.get_printer()
         # NOTE: Because the "config" is passed to PrinterProbe and ProbeEndstopWrapper,
         #       it will require all the parameters that they require, plus the ones specific
         #       to this class.
         self.mcu_probe_name = mcu_probe_name
         self.probe = self.setup_probe(config)
-        self.printer: ConfigWrapper = config.get_printer()
 
         # NOTE: dummy extrude factor
         self.extrude_factor = 1.0
@@ -186,11 +187,15 @@ class ProbeG38:
                                             self._handle_mcu_identify)
 
     def setup_probe(self, config):
-        """"Instantiate PrinterProbeG38 object.
-        Registers the commands for regular probing.
+        """Instantiate PrinterProbeG38 object.
+        Registers the commands for regular probing, and
+        registers this object as the printer's 'probe' object,
+        making it available to other modules (e.g. bed mesh).
         """
         logging.info(f"Configuring G38.n commands for probe '{self.mcu_probe_name}'.")
-        return PrinterProbeG38(config=config, mcu_probe_name=self.mcu_probe_name)
+        probe = PrinterProbeG38(config=config, mcu_probe_name=self.mcu_probe_name)
+        self.printer.add_object(self.mcu_probe_name, probe)
+        return probe
 
     def register_commands(self):
         """Register CNC-style probing commands."""
@@ -224,23 +229,35 @@ class ProbeG38:
     # Probe command variants
     cmd_PROBE_G38_5_help = "G38.5 Probe away from workpiece, stop on loss of contact."
     def cmd_PROBE_G38_5(self, gcmd):
-        # No error on failure, invert probe logic.
+        # No error on failure, do not invert probe logic.
         self.cmd_PROBE_G38_2(gcmd, error_out=False, trigger_invert=False)
 
     cmd_PROBE_G38_4_help = "G38.4 Probe away from workpiece, stop on loss of contact, signal error if failure."
     def cmd_PROBE_G38_4(self, gcmd):
-        # Error on failure, invert probe logic.
+        # Error on failure, do not invert probe logic.
         self.cmd_PROBE_G38_2(gcmd, error_out=True, trigger_invert=False)
 
     cmd_PROBE_G38_3_help = "G38.3 Probe toward workpiece, stop on contact."
     def cmd_PROBE_G38_3(self, gcmd):
-        # No error on failure, do not invert probe logic.
+        # No error on failure, invert probe logic.
         self.cmd_PROBE_G38_2(gcmd, error_out=False, trigger_invert=True)
 
     # Main probe command
     cmd_PROBE_G38_2_help = "G38.2 Probe toward workpiece, stop on contact, signal error if failure."
     def cmd_PROBE_G38_2(self, gcmd: GCodeCommand, error_out=True, trigger_invert=True):
-        # Error on failure, do not invert probe logic.
+        """
+        Perform a probe command as specified by G38.2. This probe variant
+        will move the head toward the workpiece until contact is made, and
+        then stop. If the probe fails to contact the workpiece, an error
+        will be raised.
+
+        Parameters:
+            gcmd (GCodeCommand): The gcode command that triggered this probe.
+            error_out (bool): If true, an error will be raised if the
+                probe fails to contact the workpiece. (default True)
+            trigger_invert (bool): If true, the probe's trigger logic will
+                be inverted. (default True)
+        """
 
         # NOTE: Get the toolhead's last position.
         #       This will be updated below.
@@ -289,10 +306,10 @@ class ProbeG38:
                 v = float(params['E']) * self.extrude_factor
                 if not self.absolute_coord or not self.absolute_extrude:
                     # value relative to position of last move
-                    self.last_position[self.toolhead.axis_count] += v
+                    self.last_position[-1] += v
                 else:
                     # value relative to base coordinate position
-                    self.last_position[self.toolhead.axis_count] = v + self.base_position[self.toolhead.axis_count]
+                    self.last_position[-1] = v + self.base_position[-1]
                 # NOTE: register which axes are being probed
                 probe_axes.append(active_extruder_name)  # Append "extruderN"
 
@@ -321,7 +338,30 @@ class ProbeG38:
                        trigger_invert=trigger_invert,
                        probe_axes=probe_axes)
 
-    def probe_g38(self, pos, speed, error_out, gcmd: GCodeCommand, trigger_invert, probe_axes=None):
+    def probe_g38(
+        self,
+        pos: list[float],
+        speed: float,
+        error_out: bool,
+        gcmd: GCodeCommand,
+        trigger_invert: bool,
+        probe_axes: Optional[List[str]] = None,
+    ) -> list[float]:
+        """
+        Execute a probe G38 command. This method is called by the register_commands method.
+
+        Args:
+            pos (list[int]): position to probe to.
+            speed (float): speed to move at.
+            error_out (bool): whether to raise an error if the probe doesn't trigger.
+            gcmd (GCodeCommand): the GCodeCommand containing the command.
+            trigger_invert (bool): whether to invert the probe trigger logic.
+            probe_axes (list): which axes to probe (X, Y, Z, or extruder name).
+
+        Returns:
+            list[float]: the probed position, at which the endstop triggered.
+        """
+
         logging.info("probe_g38 probing with axes: " + str(probe_axes))
 
         # TODO: rethink if "homing" the machine is neccessary for probing.

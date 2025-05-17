@@ -1,0 +1,24 @@
+# K4CNC tests
+DICTIONARY atmega644p.dict
+CONFIG k4cnc.cfg
+
+# Home and XYZ moves
+G28
+G1 X20 Y20
+G1 X25 Y25
+
+# Extrude only
+SET_KINEMATIC_POSITION E=0
+G1 E5
+G1 E-2
+G1 E7
+
+# Extrusion and XYZ moves
+G1 X20 Y20 Z1
+G1 X25 Y25 E7.5
+
+# Home extruder
+HOME_EXTRUDER EXTRUDER=extruder
+
+# PROBING
+MULTIPROBE2 PROBE_NAME=extruder Z=-1 X=1 F=5000

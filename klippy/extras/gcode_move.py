@@ -25,9 +25,7 @@ class GCodeMove:
       - The "checks" still have the XYZ logic.
       - Homing is not implemented for ABC.
     """
-    def __init__(self, config, toolhead_id="toolhead"):
-        self.toolhead_id = toolhead_id
-
+    def __init__(self, config):
         # NOTE: amount of non-extruder axes: XYZ=3, XYZABC=6.
         # TODO: cmd_M114 only supports 3 or 6 for now.
         # TODO: find a way to get the axis value from the config, this does not work.
@@ -36,6 +34,9 @@ class GCodeMove:
         main_config = config.getsection("printer")
         self.axis_names = main_config.get('axis', 'XYZ')
         self.axis_count = len(self.axis_names)
+
+        # Skip relative E offset on GCODE restore if requested.
+        self.relative_e_restore = main_config.getboolean('relative_e_restore', True)
 
         # Axis sets and names for them are partially hardcoded all around.
         self.axis_triplets = ["XYZ", "ABC", "UVW"]
@@ -129,7 +130,7 @@ class GCodeMove:
     def _handle_ready(self):
         self.is_printer_ready = True
         if self.move_transform is None:
-            toolhead = self.printer.lookup_object(self.toolhead_id)
+            toolhead = self.printer.lookup_object('toolhead')
             self.move_with_transform = toolhead.move
             self.position_with_transform = toolhead.get_position
         self.reset_last_position()
@@ -169,6 +170,7 @@ class GCodeMove:
         # self.base_position[3] = self.last_position[3]
 
     def _handle_home_rails_end(self, homing_state: Homing, rails):
+        """Triggered by the home_rails method in homing.py after the homing moves complete"""
         self.reset_last_position()
         for axis in homing_state.get_axes():
             self.base_position[axis] = self.homing_position[axis]
@@ -183,7 +185,7 @@ class GCodeMove:
                 "G-Code move transform already specified")
         old_transform = self.move_transform
         if old_transform is None:
-            old_transform = self.printer.lookup_object(self.toolhead_id, None)
+            old_transform = self.printer.lookup_object('toolhead', None)
         self.move_transform = transform
         self.move_with_transform = transform.move
         self.position_with_transform = transform.get_position
@@ -215,14 +217,12 @@ class GCodeMove:
         }
 
     def reset_last_position(self):
-        # NOTE: Handler for "toolhead:set_position" and other events,
-        #       sent at least by "toolhead.set_position" and also
-        #       called by "_handle_activate_extruder" (and other methods).
+        # NOTE: Handler for "toolhead:set_position" and other events.
+        #       Also called by "_handle_activate_extruder" (and other methods).
         logging.info(f"gcode_move.reset_last_position: triggered.")
         if self.is_printer_ready:
-            # NOTE: The "" method is actually either "transform.get_position",
-            #       "toolhead.get_position", or a default function returning "0.0"
-            #       for all axis.
+            # NOTE: The "position_with_transform" method is actually either "transform.get_position",
+            #       "toolhead.get_position", or a default function returning "0.0" for each axis.
             self.last_position = self.position_with_transform()
             logging.info(f"gcode_move.reset_last_position: set self.last_position={self.last_position}")
         else:
@@ -246,20 +246,20 @@ class GCodeMove:
                     v = float(params[axis])
                     logging.info(f"GCodeMove: parsed axis={axis} with value={v}")
                     if not self.absolute_coord:
-                        # value relative to position of last move
+                        # Relative move, with value relative to position of last move.
                         self.last_position[pos] += v
                     else:
-                        # value relative to base coordinate position
+                        # Absolute move, with value relative to base coordinate position.
                         self.last_position[pos] = v + self.base_position[pos]
             # NOTE: extruder move coordinates.
             if 'E' in params:
                 v = float(params['E']) * self.extrude_factor
                 logging.info(f"GCodeMove: parsed axis=E with value={v}")
                 if not self.absolute_coord or not self.absolute_extrude:
-                    # value relative to position of last move
+                    # Relative move, with value relative to position of last move.
                     self.last_position[-1] += v
                 else:
-                    # value relative to base coordinate position
+                    # Absolute move, with value relative to base coordinate position.
                     self.last_position[-1] = v + self.base_position[-1]
             # NOTE: move feedrate.
             if 'F' in params:
@@ -306,7 +306,7 @@ class GCodeMove:
     def cmd_G91(self, gcmd):
         # Use relative coordinates
         self.absolute_coord = False
-    cmd_G92_help = "Set position of the toolhead."
+    cmd_G92_help = "Set position of the toolhead (i.e. set the gcode_base offsets)."
     def cmd_G92(self, gcmd):
         # Set position
         ax_names = list(self.axis_map)  # e.g.: ["X", "Y", "Z", "A", "E"]
@@ -401,9 +401,14 @@ class GCodeMove:
         self.speed = state['speed']
         self.speed_factor = state['speed_factor']
         self.extrude_factor = state['extrude_factor']
-        # Restore the relative E position
+        # Restore the relative E position ().
+        # NOTE: The default behaviour is equivalent to a G92 using the saved position of the extruder.
+        #       The purpose of it is unclear (added in commit c54b8da530dc724b129066d1f3a825226926c5e6).
+        # TODO: This behaviour causes issues with axis limits on home-able extruders,
+        #       as revealed by moves done by Mainsail with the "_CLIENT" macros.
+        #       It is now optional through a new parameter in the "[printer]" config section.
         e_diff = self.last_position[-1] - state['last_position'][-1]
-        self.base_position[-1] += e_diff
+        self.base_position[-1] += e_diff if self.relative_e_restore else 0
         # Move the toolhead back if requested
         if gcmd.get_int('MOVE', 0):
             speed = gcmd.get_float('MOVE_SPEED', self.speed, above=0.)
@@ -419,7 +424,7 @@ class GCodeMove:
         if self.axis_names != 'XYZ':
             gcmd.respond_info('cmd_GET_POSITION: Partial support for extruder position information. Only XYZABC is complete.')
 
-        toolhead = self.printer.lookup_object(self.toolhead_id, None)
+        toolhead = self.printer.lookup_object('toolhead', None)
 
         if toolhead is None:
             raise gcmd.error("Printer not ready")

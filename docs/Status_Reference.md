@@ -31,13 +31,34 @@ The following information is available in the
 ## bed_screws
 
 The following information is available in the
-`Config_Reference.md#bed_screws` object:
+[bed_screws](Config_Reference.md#bed_screws) object:
 - `is_active`: Returns True if the bed screws adjustment tool is currently
 active.
 - `state`: The bed screws adjustment tool state. It is one of
 the following strings: "adjust", "fine".
 - `current_screw`: The index for the current screw being adjusted.
 - `accepted_screws`: The number of accepted screws.
+
+## canbus_stats
+
+The following information is available in the `canbus_stats
+some_mcu_name` object (this object is automatically available if an
+mcu is configured to use canbus):
+- `rx_error`: The number of receive errors detected by the
+  micro-controller canbus hardware.
+- `tx_error`: The number of transmit errors detected by the
+  micro-controller canbus hardware.
+- `tx_retries`: The number of transmit attempts that were retried due
+  to bus contention or errors.
+- `bus_state`: The status of the interface (typically "active" for a
+  bus in normal operation, "warn" for a bus with recent errors,
+  "passive" for a bus that will no longer transmit canbus error
+  frames, or "off" for a bus that will no longer transmit or receive
+  messages).
+
+Note that only the rp2XXX micro-controllers report a non-zero
+`tx_retries` field and the rp2XXX micro-controllers always report
+`tx_error` as zero and `bus_state` as "active".
 
 ## configfile
 
@@ -221,6 +242,8 @@ The following information is available in the `gcode_move` object
 The following information is available in the
 [hall_filament_width_sensor](Config_Reference.md#hall_filament_width_sensor)
 object:
+- all items from
+  [filament_switch_sensor](Status_Reference.md#filament_switch_sensor)
 - `is_active`: Returns True if the sensor is currently active.
 - `Diameter`: The last reading from the sensor in mm.
 - `Raw`: The last raw ADC reading from the sensor.
@@ -281,6 +304,17 @@ The following information is available for each `[led led_name]`,
   the blue value (3rd item in color list) of the second neopixel in a
   chain could be accessed at
   `printer["neopixel <config_name>"].color_data[1][2]`.
+
+## load_cell
+
+The following information is available for each `[load_cell name]`:
+- 'is_calibrated': True/False is the load cell calibrated
+- 'counts_per_gram': The number of raw sensor counts that equals 1 gram of force
+- 'reference_tare_counts': The reference number of raw sensor counts for 0 force
+- 'tare_counts': The current number of raw sensor counts for 0 force
+- 'force_g': The force in grams, averaged over the last polling period.
+- 'min_force_g': The minimum force in grams, over the last polling period.
+- 'max_force_g': The maximum force in grams, over the last polling period.
 
 ## manual_probe
 
@@ -425,6 +459,12 @@ The following information is available in
 [servo some_name](Config_Reference.md#servo) objects:
 - `printer["servo <config_name>"].value`: The last setting of the PWM
   pin (a value between 0.0 and 1.0) associated with the servo.
+
+## skew_correction.py
+
+The following information is available in the `skew_correction` object (this
+object is available if any skew_correction is defined):
+- `current_profile_name`: Returns the name of the currently loaded SKEW_PROFILE.
 
 ## stepper_enable
 
