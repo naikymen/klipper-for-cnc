@@ -137,12 +137,13 @@ class ProbeG38:
       - Added "set_position_e" to the toolhead.
     """
     def __init__(self, config: ConfigWrapper, mcu_probe_name: str = 'probe'):
+        # Save printer object.
+        self.printer: Printer = config.get_printer()
         # NOTE: Because the "config" is passed to PrinterProbe and ProbeEndstopWrapper,
         #       it will require all the parameters that they require, plus the ones specific
         #       to this class.
         self.mcu_probe_name = mcu_probe_name
         self.probe = self.setup_probe(config)
-        self.printer: Printer = config.get_printer()
 
         # NOTE: dummy extrude factor
         self.extrude_factor = 1.0
