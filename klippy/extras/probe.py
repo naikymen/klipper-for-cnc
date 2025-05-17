@@ -495,14 +495,17 @@ class ProbePointsHelper:
         def_move_z = self.default_horizontal_move_z
         self.horizontal_move_z = gcmd.get_float('HORIZONTAL_MOVE_Z',
                                                 def_move_z)
+        logging.info(f"ProbePointsHelper.start_probe: method={method}, probe={probe}")
         if probe is None or method == 'manual':
             # Manual probe
+            logging.info("ProbePointsHelper.start_probe: manual probe")
             self.lift_speed = self.speed
             self.probe_offsets = (0., 0., 0.)
             self.manual_results = []
             self._manual_probe_start()
             return
         # Perform automatic probing
+        logging.info("ProbePointsHelper.start_probe: automatic probing")
         self.lift_speed = probe.get_probe_params(gcmd)['lift_speed']
         self.probe_offsets = probe.get_offsets()
         z_idx = self.toolhead.axis_map["Z"]
