@@ -149,16 +149,20 @@ class ExtruderStepper:
         self.motion_queue = extruder_name
 
     def check_move_limits(self, move):
-        """ExtruderStepper version of check_move_limits in toolhead.py"""
+        """ExtruderStepper version of check_move_limits in toolhead.py
+        Respects toolhead's limit_checks_enabled flag for position limits.
+        """
         epos = move.end_pos[-1]
 
-        if self.can_home:
+        # Only check limits if enabled in toolhead and stepper can home
+        if self.can_home and move.toolhead.are_limits_enabled():
             # NOTE: Software limit checks, borrowed from "cartesian.py".
             logging.info(f"extruder_stepper.check_move_limits: checking move ending on epos={epos} and limits={self.limits}")
             if (epos < self.limits[0][0] or epos > self.limits[0][1]):
                 self._check_endstops(move)
         else:
-            logging.info(f"extruder_stepper.check_move_limits: E stepper not home-able, skipping check on move ending on epos={epos}")
+            reason = "E stepper not home-able" if not self.can_home else "limit checks disabled"
+            logging.info(f"extruder_stepper.check_move_limits: {reason}, skipping check on move ending on epos={epos}")
 
     def _check_endstops(self, move):
         """ExtruderStepper version of _check_endstops in toolhead.py"""

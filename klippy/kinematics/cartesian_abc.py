@@ -348,6 +348,7 @@ class CartKinematicsABC(CartKinematics):
         """Checks a move for validity.
         
         Also limits the move's max speed to the limit of the Z axis if used.
+        Respects toolhead's limit_checks_enabled flag for position limits.
 
         Args:
             move (tolhead.Move): Instance of the Move class.
@@ -359,7 +360,8 @@ class CartKinematicsABC(CartKinematics):
             #       see rationale in favor of "axis_config" above, at "_check_endstops".
             pos = move.end_pos[axis]
             limit_checks.append(pos < self.limits[i][0] or pos > self.limits[i][1])
-        if any(limit_checks):
+        if any(limit_checks) and move.toolhead.are_limits_enabled():
+            # Only perform the limit check if the limits are enabled in the toolhead.
             self._check_endstops(move)
         
         # limits = self.limits

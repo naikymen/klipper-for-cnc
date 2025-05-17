@@ -426,6 +426,12 @@ class ToolHead:
     max_z_velocity: 250
     max_accel: 1000
 
+    Commands:
+      M211: Toggle software endstops and limits
+        - S0: Disable limits
+        - S1: Enable limits
+        - No S parameter: Report current state
+
     TODO:
       - The "checks" still have the XYZ logic.
       - Homing is not implemented for ABC.
@@ -434,6 +440,7 @@ class ToolHead:
         # NOTE: amount of non-extruder axes: XYZ=3, XYZABC=6.
         self.axis_names = config.get('axis', 'XYZ').upper()  # e.g. "XYZ", "XYZABC", "XY".
         self.axis_count = len(self.axis_names)
+        self.limit_checks_enabled = True  # Flag to control limit checks
 
         # Check for extruder axis in axis names.
         if "E" in self.axis_names:
@@ -583,6 +590,7 @@ class ToolHead:
                                self.cmd_SET_VELOCITY_LIMIT,
                                desc=self.cmd_SET_VELOCITY_LIMIT_help)
         gcode.register_command('M204', self.cmd_M204)
+        gcode.register_command('M211', self.cmd_M211, desc=self.cmd_M211_help)
         self.printer.register_event_handler("klippy:shutdown",
                                             self._handle_shutdown)
         # Load some default modules
@@ -1298,10 +1306,6 @@ class ToolHead:
                 logging.info(f"toolhead.move: check_move on {axes} move.")
                 kin = self.kinematics[axes]
                 kin.check_move(move)
-            # self.kin.check_move(move)
-            # TODO: implement move checks for ABC axes here too.
-            # if self.abc_trapq is not None:
-            #     self.kin_abc.check_move(move)
 
         # NOTE: Kinematic move checks for E axis.
         if move.axes_d[-1]:
@@ -1672,6 +1676,19 @@ class ToolHead:
             self.reactor.update_timer(self.flush_timer, self.reactor.NOW)
     def get_max_velocity(self):
         return self.max_velocity, self.max_accel
+
+    def are_limits_enabled(self):
+        return self.limit_checks_enabled
+
+    cmd_M211_help = "Toggle software endstops and limits"
+    def cmd_M211(self, gcmd):
+        # Get S parameter (0 to disable, 1 to enable, or no parameter to report)
+        enable = gcmd.get_int('S', None, minval=0, maxval=1)
+        if enable is not None:
+            self.limit_checks_enabled = bool(enable)
+        # Report current state
+        gcmd.respond_info("Software endstops and limits are %s" 
+                         % ("enabled" if self.limit_checks_enabled else "disabled"))
     def _calc_junction_deviation(self):
         scv2 = self.square_corner_velocity**2
         self.junction_deviation = scv2 * (math.sqrt(2.) - 1.) / self.max_accel

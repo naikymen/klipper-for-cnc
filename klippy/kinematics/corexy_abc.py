@@ -230,13 +230,22 @@ class CoreXYKinematicsABC:
                 raise move.move_error()
     
     def check_move(self, move):
+        """Checks a move for validity.
+        
+        Also limits the move's max speed to the limit of the Z axis if used.
+        Respects toolhead's limit_checks_enabled flag for position limits.
+
+        Args:
+            move (tolhead.Move): Instance of the Move class.
+        """
         limit_checks = []
         for i, axis in enumerate(self.axis_config):
             # TODO: Check if its better to iterate over "self.axis" instead,
             #       see rationale in favor of "axis_config" above, at "_check_endstops".
             pos = move.end_pos[axis]
             limit_checks.append(pos < self.limits[i][0] or pos > self.limits[i][1])
-        if any(limit_checks):
+        if any(limit_checks) and move.toolhead.are_limits_enabled():
+            # Only perform the limit check if the limits are enabled in the toolhead.
             self._check_endstops(move)
         
         # TODO: Update this part of the code to handle 
