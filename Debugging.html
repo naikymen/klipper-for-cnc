@@ -1139,47 +1139,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    Troubleshooting
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#timer-too-close" class="md-nav__link">
-    Timer too close
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#rescheduled-timer-in-the-past" class="md-nav__link">
-    Rescheduled timer in the past
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#timeout-with-mcu-lost-communication-with-mcu" class="md-nav__link">
-    Timeout with MCU / Lost communication with MCU
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#internal-error-in-mcu-mcu-stepcompress" class="md-nav__link">
-    Internal error in MCU ‘mcu’ stepcompress
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -1542,47 +1501,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    Troubleshooting
-  </a>
-  
-    <nav class="md-nav" aria-label="Troubleshooting">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#timer-too-close" class="md-nav__link">
-    Timer too close
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#rescheduled-timer-in-the-past" class="md-nav__link">
-    Rescheduled timer in the past
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#timeout-with-mcu-lost-communication-with-mcu" class="md-nav__link">
-    Timeout with MCU / Lost communication with MCU
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#internal-error-in-mcu-mcu-stepcompress" class="md-nav__link">
-    Internal error in MCU ‘mcu’ stepcompress
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -1820,19 +1738,6 @@ change to the GPIOs on PORTA and PORTB. This could then be viewed
 using gtkwave with:</p>
 <div class="highlight"><pre><span></span><code>gtkwave avrsim.vcd
 </code></pre></div>
-
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
-<p>See Sineo's knowledgebase category and post: <a href="https://klipper.discourse.group/t/how-to-trouble-shoot/6326">https://klipper.discourse.group/t/how-to-trouble-shoot/6326</a></p>
-<h3 id="timer-too-close">Timer too close<a class="headerlink" href="#timer-too-close" title="Permanent link">&para;</a></h3>
-<p>Kevin: A "timer too close" may be a communication issue, so altering the host may not be enough to reproduce it. What I do is run the log through <code>scripts/logextract.py</code>. That will rearrange the messages by time order. From that I can usually determine which message caused the shutdown, and back-track to when the message should have been sent. That often helps in figuring out why the message got delayed.</p>
-<p>Knowledgebase post: <a href="https://klipper.discourse.group/t/timer-too-close/6634">https://klipper.discourse.group/t/timer-too-close/6634</a></p>
-<h3 id="rescheduled-timer-in-the-past">Rescheduled timer in the past<a class="headerlink" href="#rescheduled-timer-in-the-past" title="Permanent link">&para;</a></h3>
-<p>Knowledgebase post: <a href="https://klipper.discourse.group/t/rescheduled-timer-in-the-past/6635">https://klipper.discourse.group/t/rescheduled-timer-in-the-past/6635</a></p>
-<h3 id="timeout-with-mcu-lost-communication-with-mcu">Timeout with MCU / Lost communication with MCU<a class="headerlink" href="#timeout-with-mcu-lost-communication-with-mcu" title="Permanent link">&para;</a></h3>
-<p>Knowledgebase post: <a href="https://klipper.discourse.group/t/timeout-with-mcu-lost-communication-with-mcu/6639">https://klipper.discourse.group/t/timeout-with-mcu-lost-communication-with-mcu/6639</a></p>
-<h3 id="internal-error-in-mcu-mcu-stepcompress">Internal error in MCU ‘mcu’ stepcompress<a class="headerlink" href="#internal-error-in-mcu-mcu-stepcompress" title="Permanent link">&para;</a></h3>
-<p>Knowledgebase post: <a href="https://klipper.discourse.group/t/internal-error-in-mcu-mcu-stepcompress/6644">https://klipper.discourse.group/t/internal-error-in-mcu-mcu-stepcompress/6644</a></p>
-<p>I have seen this often when messing with the homing code, in step commands with a null interval value (i.e. <code>i=0</code> means infinite speed). The error shows up like this: <code>stepcompress o=2 i=0 c=19 a=0: Invalid sequence</code>.</p>
 
               
             </article>
