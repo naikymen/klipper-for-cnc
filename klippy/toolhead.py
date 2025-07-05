@@ -1571,8 +1571,8 @@ class ToolHead:
         # self.printer.lookup_extruder_steppers()  # [ExtruderStepper]
         extruders = self.printer.lookup_extruders() # PrinterExtruder
         extruder_positions = {
-            extruder.get_name(): extruder.last_position
-            for extruder in extruders
+            extruder_name: extruder.last_position
+            for extruder_name, extruder in extruders
         }
 
         # Add the standard properties.
