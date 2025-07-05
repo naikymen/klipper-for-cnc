@@ -1568,12 +1568,20 @@ class ToolHead:
                 e_status = e_stepper.get_limit_status(eventtime)
                 res = self.concat_kin_status(prev=res, new=e_status, kin=e_stepper)
 
+        # self.printer.lookup_extruder_steppers()  # [ExtruderStepper]
+        extruders = self.printer.lookup_extruders() # PrinterExtruder
+        extruder_positions = {
+            extruder.get_name(): extruder.last_position
+            for extruder in extruders
+        }
+
         # Add the standard properties.
         res.update({ 'print_time': print_time,
                      'stalls': self.print_stall,
                      'estimated_print_time': estimated_print_time,
                      'extruder': self.extruder.get_name(),
                      'position': self.Coord(*self.commanded_pos[:-1], e=self.commanded_pos[-1]),
+                     'extruder_positions': extruder_positions,
                      'max_velocity': self.max_velocity,
                      'max_accel': self.max_accel,
                      'minimum_cruise_ratio': self.min_cruise_ratio,
