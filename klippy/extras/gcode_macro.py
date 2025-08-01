@@ -3,9 +3,15 @@
 # Copyright (C) 2018-2021  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 import traceback, logging, ast, copy, json
 import jinja2
 
+if TYPE_CHECKING:
+    from ..klippy import Printer
+    from ..gcode import GCodeDispatch
 
 ######################################################################
 # Template handling
@@ -42,10 +48,10 @@ class GetStatusWrapper:
 # Wrapper around a Jinja2 template
 class TemplateWrapper:
     def __init__(self, printer, env, name, script):
-        self.printer = printer
+        self.printer: Printer = printer
         self.name = name
-        self.gcode = self.printer.lookup_object('gcode')
-        gcode_macro = self.printer.lookup_object('gcode_macro')
+        self.gcode: GCodeDispatch = self.printer.lookup_object('gcode')
+        gcode_macro: PrinterGCodeMacro = self.printer.lookup_object('gcode_macro')
         self.create_template_context = gcode_macro.create_template_context
         try:
             self.template = env.from_string(script)
@@ -125,10 +131,10 @@ class GCodeMacro:
                     % (config.get_name()))
         name = config.get_name().split()[1]
         self.alias = name.upper()
-        self.printer = printer = config.get_printer()
-        gcode_macro = printer.load_object(config, 'gcode_macro')
-        self.template = gcode_macro.load_template(config, 'gcode')
-        self.gcode = printer.lookup_object('gcode')
+        self.printer: Printer = config.get_printer()
+        gcode_macro: PrinterGCodeMacro = self.printer.load_object(config, 'gcode_macro')
+        self.template: TemplateWrapper = gcode_macro.load_template(config, 'gcode')
+        self.gcode: GCodeDispatch = self.printer.lookup_object('gcode')
         self.rename_existing = config.get("rename_existing", None)
         self.cmd_desc = config.get("description", "G-Code macro")
         if self.rename_existing is not None:
@@ -137,8 +143,8 @@ class GCodeMacro:
                 raise config.error(
                     "G-Code macro rename of different types ('%s' vs '%s')"
                     % (self.alias, self.rename_existing))
-            printer.register_event_handler("klippy:connect",
-                                           self.handle_connect)
+            self.printer.register_event_handler("klippy:connect",
+                                                self.handle_connect)
         else:
             self.gcode.register_command(self.alias, self.cmd,
                                         desc=self.cmd_desc)
