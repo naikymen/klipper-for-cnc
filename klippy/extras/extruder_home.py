@@ -199,7 +199,7 @@ class ExtruderHoming:
         # Use the speed passed by the user if provided, or the default speed if not.
         #speed = gcmd.get_float('SPEED', speed, above=0.0)
 
-        # NOTE: Use E from the toolhead's position vector, and add estimation.
+        # NOTE: Use E from the toolhead's position vector, and add the endstop position.
         pos = self.th_orig_pos[:-1] + [self.get_movepos(self.homing_info)]
 
         # Get rail limits
@@ -209,11 +209,15 @@ class ExtruderHoming:
         #       Originally 0.0, now position_max, which requires an
         #       endstop position of 0.0 to home in the right direction.
         if self.homing_info.positive_dir:
+            # Set the starting position 5% further from the endstop (more negative).
             # NOTE: pos[-1] is the endstop's position.
-            e_startpos = position_min - pos[-1] * 0.1
+            e_startpos = (position_min - pos[-1]) * 1.05
         else:
+            # Set the starting position 5% further from the endstop (more positive).
             # NOTE: pos[-1] is the endstop's position.
-            e_startpos = position_max + pos[-1] * 0.1
+            e_startpos = (position_max - pos[-1]) * 1.05
+        
+        # Set the starting position for the homing move.
         startpos = self.th_orig_pos[:-1] + [e_startpos]
         self.toolhead.set_position(newpos=startpos, homing_axes="e")
 
@@ -307,15 +311,17 @@ class ExtruderHoming:
         # Get rail limits
         position_min, position_max = rail.get_range()
 
-        # NOTE: force extruder to a certain starting position.
+        # NOTE: Force extruder to a certain starting position.
         #       Originally 0.0, now position_max, which requires an
         #       endstop position of 0.0 to home in the right direction.
-        if homing_info.positive_dir:
+        if self.homing_info.positive_dir:
+            # Set the starting position 5% further from the endstop (more negative).
             # NOTE: pos[-1] is the endstop's position.
-            e_startpos = position_min - pos[-1] * 0.1
+            e_startpos = (position_min - pos[-1]) * 1.05
         else:
+            # Set the starting position 5% further from the endstop (more positive).
             # NOTE: pos[-1] is the endstop's position.
-            e_startpos = position_max + pos[-1] * 0.1
+            e_startpos = (position_max - pos[-1]) * 1.05
 
         # NOTE: Get the initial position from all non-E elements in the toolhead's
         #       position by using its "axis count" (this can be 3 or 6).
