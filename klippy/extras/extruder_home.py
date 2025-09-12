@@ -241,7 +241,7 @@ class ExtruderHoming:
                                 check_triggered=True)
         except self.printer.command_error as e:
             # Reset the motor's limits if an error occurs, and re-raise it.
-            self.extruder._motor_off()
+            self.extruder_stepper._motor_off()
             raise e
 
         # NOTE: Update positions in gcode_move, fixes inaccurate first
