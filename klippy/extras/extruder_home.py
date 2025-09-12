@@ -230,14 +230,19 @@ class ExtruderHoming:
         #       the extruder axis too.
         # NOTE: "PrinterHoming.manual_home" then calls "HomingMove.homing_move".
         logging.info(f"cmd_HOME_EXTRUDER: pos={str(pos)}")
-        phoming.manual_home(toolhead=self.toolhead, endstops=endstops,
-                            pos=pos, speed=speed,
-                            # NOTE: argument passed to "mcu_endstop.home_start",
-                            #       and used directly in the low-level command.
-                            triggered=True,
-                            # NOTE: if True, an "error" is recorded when the move
-                            #       completes without the endstop triggering.
-                            check_triggered=True)
+        try:
+            phoming.manual_home(toolhead=self.toolhead, endstops=endstops,
+                                pos=pos, speed=speed,
+                                # NOTE: argument passed to "mcu_endstop.home_start",
+                                #       and used directly in the low-level command.
+                                triggered=True,
+                                # NOTE: if True, an "error" is recorded when the move
+                                #       completes without the endstop triggering.
+                                check_triggered=True)
+        except self.printer.command_error as e:
+            # Reset the motor's limits if an error occurs, and re-raise it.
+            self.extruder._motor_off()
+            raise e
 
         # NOTE: Update positions in gcode_move, fixes inaccurate first
         #       relative move. Might not be needed since actually using
@@ -246,6 +251,7 @@ class ExtruderHoming:
         # gcode_move = self.printer.lookup_object('gcode_move')
         # gcode_move.reset_last_position()
 
+        # TODO: This seems like duplicated code... review and remove.
         # NOTE: check if the active extruder is the one to be homed.
         if self.extruder_name != self.active_extruder_name:
             try:
