@@ -357,8 +357,8 @@ class HomingMove:
             if error is None:
                 error = str(e)
 
-        # NOTE: raise any errors if found.
-        #       This does not include the "trigger timeout" if
+        # Raise errors if any were generated.
+        # NOTE: This does not include the "trigger timeout" if
         #       if "check_triggered=False".
         if error is not None:
             raise self.printer.command_error(error)
@@ -580,6 +580,7 @@ class Homing:
         self.printer.send_event("homing:home_rails_end", self, rails)
         if any(self.adjust_pos.values()):
             # Apply any homing offsets
+            logging.info(f"homing.home_rails: applying homing offsets: {self.adjust_pos.values()}")
             homepos = self.toolhead.get_position()
             kin_spos = {}
             newpos = []
@@ -775,6 +776,7 @@ class PrinterHoming:
             if self.printer.is_shutdown():
                 raise self.printer.command_error(
                     "Homing failed due to printer shutdown")
+            # NOTE: This calls "PrinterStepperEnable.stepper_enable.motor_off" from "steper_enable.py".
             self.printer.lookup_object('stepper_enable').motor_off()
             raise
 

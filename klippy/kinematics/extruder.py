@@ -101,6 +101,7 @@ class ExtruderStepper:
         # Handler for "turning off" the steppers (borrowed from "cartesian").
         # NOTE: The effect is that move checks will never pass, and an error
         #       indicating "homing is needed" will end up being raised.
+        logging.info("Disabling stepper for extruder: " + self.name)
         self.limits = [(1.0, -1.0)]
 
     def get_status(self, eventtime):

@@ -93,10 +93,13 @@ class PrinterStepperEnable:
         toolhead.dwell(DISABLE_STALL_TIME)
         print_time = toolhead.get_last_move_time()
         for el in self.enable_lines.values():
+            # NOTE: Steppers of home-able extruders are included here, in theory,
+            #       becuase they are registered by the PrinterStepper class.
             el.motor_disable(print_time)
         # NOTE: Iterate over kinematics.
         for kin in toolhead.kinematics.values():
             kin.clear_homing_state(kin.axis_names.lower())
+        # NOTE: Steppers from home-able extruders should respond to this.
         self.printer.send_event("stepper_enable:motor_off", print_time)
         toolhead.dwell(DISABLE_STALL_TIME)
     def motor_debug_enable(self, stepper, enable):
