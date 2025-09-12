@@ -199,7 +199,7 @@ class ExtruderHoming:
         # Use the speed passed by the user if provided, or the default speed if not.
         #speed = gcmd.get_float('SPEED', speed, above=0.0)
 
-        # NOTE: Use XYZ from the toolhead, and E from the config file + estimation.
+        # NOTE: Use E from the toolhead's position vector, and add estimation.
         pos = self.th_orig_pos[:-1] + [self.get_movepos(self.homing_info)]
 
         # Get rail limits
@@ -302,7 +302,7 @@ class ExtruderHoming:
         homing_info = rail.get_homing_info()
         speed = homing_info.speed
         # NOTE: Use XYZ from the toolhead, and E from the config file + estimation.
-        pos = th_orig_pos[:3] + [self.get_movepos(homing_info=homing_info, rail=rail)]
+        pos = th_orig_pos[:-1] + [self.get_movepos(homing_info=homing_info, rail=rail)]
 
         # Get rail limits
         position_min, position_max = rail.get_range()
