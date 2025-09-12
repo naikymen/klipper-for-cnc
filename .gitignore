@@ -9,3 +9,4 @@ klippy/extras/.ipynb_checkpoints*
 **/.vscode/*
 klippy-env/*
 _test*
+klippy/extras/dynamicmacros.py
