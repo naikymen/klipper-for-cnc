@@ -1412,50 +1412,6 @@ are not backwards compatible. It is a good idea to review this
 document when upgrading the Klipper software.</p>
 <p>All dates in this document are approximate.</p>
 <h2 id="changes">Changes<a class="headerlink" href="#changes" title="Permanent link">&para;</a></h2>
-<p>20251122: An option <code>axis</code> has been added to <code>[carriage &lt;name&gt;]</code> sections
-for <code>generic_cartesian</code> kinematics, allowing arbitrary names for primary
-carriages. Users are encouraged to explicitly specify <code>axis</code> option now.</p>
-<p>20251106: The status fields <code>{printer.toolhead.position}</code>,
-<code>{printer.gcode_move.position}</code>,
-<code>{printer.gcode_move.gcode_position}</code>, and
-<code>{printer.motion_report.live_position}</code> are changing. These
-coordinates used to always contain four components, but now may
-contain additional components. The ordering and number of components
-may change at run-time - see the
-<a href="Status_Reference.html#accessing-coordinates">status reference</a> for
-important details. Accessing any of these coordinates in macros using
-the ".e" accessor is deprecated - use something like
-<code>{printer.toolhead.position[printer.gcode_move.axis_map.E]}</code> as an
-alternative.</p>
-<p>20251106: The status fields <code>{printer.gcode_move.homing_origin}</code>,
-<code>{printer.toolhead.axis_min}</code>, and <code>{printer.toolhead.axis_max}</code>
-currently contain four components where the fourth component is always
-zero. This behavior is deprecated. In the future these coordinates may
-contain only three components. For additional information see the
-<a href="Status_Reference.html#accessing-coordinates">status reference</a>.</p>
-<p>20251010: During normal printing the command processing will now
-attempt to stay one second ahead of printer movement (reduced from two
-seconds previously).</p>
-<p>20251003: Support for the undocumented <code>max_stepper_error</code> option in
-the <code>[printer]</code> config section has been removed.</p>
-<p>20250916: The definitions of EI, 2HUMP_EI, and 3HUMP_EI input shapers
-were updated. For best performance it is recommended to recalibrate
-input shapers, especially if some of these shapers are currently used.</p>
-<p>20250811: Support for the <code>max_accel_to_decel</code> parameter in the
-<code>[printer]</code> config section has been removed and support for the
-<code>ACCEL_TO_DECEL</code> parameter in the <code>SET_VELOCITY_LIMIT</code> command has
-been removed. These capabilities were deprecated on 20240313.</p>
-<p>20250721: The <code>[pca9632]</code> and <code>[mcp4018]</code> modules no longer accept the
-<code>scl_pin</code> and <code>sda_pin</code> options. Use <code>i2c_software_scl_pin</code> and
-<code>i2c_software_sda_pin</code> instead.</p>
-<p>20250428: The maximum <code>cycle_time</code> for pwm <code>[output_pin]</code>,
-<code>[pwm_cycle_time]</code>, <code>[pwm_tool]</code>, and similar config sections is now 3
-seconds (reduced from 5 seconds). The <code>maximum_mcu_duration</code> in
-<code>[pwm_tool]</code> is now also 3 seconds.</p>
-<p>20250418: The manual_stepper <code>STOP_ON_ENDSTOP</code> feature may now take
-less time to complete. Previously, the command would wait the entire
-time the move could possibly take even if the endstop triggered
-earlier. Now, the command finishes shortly after the endstop trigger.</p>
 <p>20250417: SPI devices using "software SPI" are now rate limited.
 Previously, the <code>spi_speed</code> in the config was ignored and the
 transmission speed was only limited by the processing speed of the
@@ -1489,7 +1445,7 @@ object were issued faster than the minimum scheduling time (typically
 100ms) then actual updates could be queued far into the future. Now if
 many updates are issued in rapid succession then it is possible that
 only the latest request will be applied. If the previous behavior is
-required then consider adding explicit <code>G4</code> delay commands between
+requried then consider adding explicit <code>G4</code> delay commands between
 updates.</p>
 <p>20240912: Support for <code>maximum_mcu_duration</code> and <code>static_value</code>
 parameters in <code>[output_pin]</code> config sections have been removed. These
@@ -1548,7 +1504,7 @@ exporting <code>mode</code> and <code>active_carriage</code>, the individual mod
 carriage are exported as <code>printer.dual_carriage.carriage_0</code> and
 <code>printer.dual_carriage.carriage_1</code>.</p>
 <p>20230619: The <code>relative_reference_index</code> option has been deprecated
-and superseded by the <code>zero_reference_position</code> option.  Refer to the
+and superceded by the <code>zero_reference_position</code> option.  Refer to the
 <a href="Bed_Mesh.html#the-deprecated-relative_reference_index">Bed Mesh Documentation</a>
 for details on how to update the configuration.  With this deprecation
 the <code>RELATIVE_REFERENCE_INDEX</code> is no longer available as a parameter
@@ -1737,7 +1693,7 @@ endstop phases by running the ENDSTOP_PHASE_CALIBRATE command.</p>
 <code>gear_ratio</code> for their rotary steppers, and they may no longer specify
 a <code>step_distance</code> parameter.  See the
 <a href="Config_Reference.html#stepper">config reference</a> for the format of the
-new gear_ratio parameter.</p>
+new gear_ratio paramter.</p>
 <p>20201213: It is not valid to specify a Z "position_endstop" when using
 "probe:z_virtual_endstop".  An error will now be raised if a Z
 "position_endstop" is specified with "probe:z_virtual_endstop".
