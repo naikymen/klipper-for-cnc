@@ -464,7 +464,7 @@ class GCodeHelper:
         wh.register_endpoint("gcode/subscribe_output",
                              self._handle_subscribe_output)
     def _handle_help(self, web_request):
-        web_request.send(self.gcode.get_command_help())
+        web_request.send(self.gcode.get_command_help(simple=False))
     def _handle_script(self, web_request):
         cmd = web_request.get_str('script')
         logging.info(f"GCodeHelper sending cmd={cmd} to 'GCodeDispatch.run_script'.")

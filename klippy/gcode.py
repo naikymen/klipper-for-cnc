@@ -179,8 +179,8 @@ class GCodeDispatch:
                     cmd, key, value, prev_values))
         prev_values[value] = func
     
-    def get_command_help(self):
-        return dict(self.gcode_help)
+    def get_command_help(self, simple=True):
+        return dict(self.gcode_help) if simple else self.get_command_help_all()
     def get_status(self, eventtime):
         return {'commands': self.status_commands}
     def _build_status_commands(self):
@@ -420,6 +420,18 @@ class GCodeDispatch:
         for cmd in sorted(self.base_gcode_handlers):
             cmdhelp.append("%-10s: %s" % (cmd, self.gcode_help.get(cmd, "no description.")))
         gcmd.respond_info("\n".join(cmdhelp), log=False)
+    def get_command_help_all(self):
+        """Prepare a more complete help text for all available GCODE commands."""
+        cmd_help = {}
+        for cmd in sorted(self.gcode_handlers):
+            if cmd in self.gcode_help:
+                cmd_help[cmd] = self.gcode_help[cmd]
+            else:
+                cmd_help[cmd] = "No help string for GCODE handler."
+        for cmd in sorted(self.base_gcode_handlers):
+            cmd_help[cmd] = self.gcode_help.get(cmd, "No help string for basic GCODE.")
+        return cmd_help
+
 
 # Support reading gcode from a pseudo-tty interface
 class GCodeIO:
