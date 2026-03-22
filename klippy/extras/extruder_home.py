@@ -141,13 +141,13 @@ class ExtruderHoming:
         self.gcmd = gcmd
 
         # NOTE: Borrowed from extruder.py
-        self.extruder: PrinterExtruder = self.printer.lookup_object(self.extruder_name, None)  # PrinterExtruder
+        self.extruder: PrinterExtruder = self.printer.lookup_object(self.extruder_name, None)
         if self.extruder is None or not isinstance(self.extruder, PrinterExtruder):
             raise self.printer.command_error(f"'{self.extruder_name}' is not a valid extruder.")
 
         # NOTE: Get the toolhead and its *current* extruder.
         self.toolhead: ToolHead = self.printer.lookup_object("toolhead")
-        self.active_extruder: PrinterExtruder = self.toolhead.get_extruder()            # PrinterExtruder
+        self.active_extruder: PrinterExtruder = self.toolhead.get_extruder()
         self.active_extruder_name = self.active_extruder.get_name()
 
         # NOTE: check if the active extruder is the one to be homed.
@@ -162,13 +162,13 @@ class ExtruderHoming:
                                  f"Could not activate {self.active_extruder_name}.")
 
         # NOTE: Get the active extruder's trapq.
-        self.extruder_trapq = self.extruder.get_trapq()         # extruder trapq (from ffi)
+        self.extruder_trapq = self.extruder.get_trapq()  # extruder trapq (from ffi)
 
         # NOTE: Get the steppers
-        self.extruder_stepper: ExtruderStepper = self.extruder.extruder_stepper      # ExtruderStepper
-        self.rail: stepper.PrinterRail = self.extruder_stepper.rail # PrinterRail
-        self.stepper: stepper.MCU_stepper = self.extruder_stepper.stepper   # MCU_stepper
-        self.steppers = [self.stepper]                              # [MCU_stepper]
+        self.extruder_stepper: ExtruderStepper = self.extruder.extruder_stepper
+        self.rail: stepper.PrinterRail = self.extruder_stepper.rail
+        self.stepper: stepper.MCU_stepper = self.extruder_stepper.stepper
+        self.steppers = [self.stepper]  # [MCU_stepper]
         # NOTE: in the "ExtruderStepper" class, the "rail" and the "stepper"
         #       objects are _the same_ object.
 
