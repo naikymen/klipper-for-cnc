@@ -27,7 +27,7 @@ import logging
 import stepper  # , chelper
 # from toolhead import Move
 from kinematics.extruder import PrinterExtruder, ExtruderStepper
-from extras.homing import PrinterHoming
+from extras.homing import HomingMove
 from gcode import GCodeDispatch
 from toolhead import ToolHead
 from klippy import Printer
@@ -131,6 +131,39 @@ class ExtruderHoming:
     # NOTE: the "register_mux_command" above registered a "HOME_EXTRUDER"
     #       command, which will end up calling this method.
     #       The "help" string is usually defined along the method.
+    def _run_extruder_homing(self, endstops, startpos, homepos, homing_info):
+        hmove = HomingMove(self.printer, endstops, self.toolhead)
+        hmove.homing_move(movepos=homepos, speed=homing_info.speed,
+                          triggered=True, check_triggered=True)
+
+        if homing_info.retract_dist:
+            move_d = abs(homepos[-1] - startpos[-1])
+            if move_d <= 0.:
+                raise self.printer.command_error(
+                    "Extruder homing retract requires non-zero travel")
+
+            retract_r = min(1., homing_info.retract_dist / move_d)
+            retractpos = list(homepos)
+            retractpos[-1] = homepos[-1] - (homepos[-1] - startpos[-1]) * retract_r
+
+            logging.info(f"_run_extruder_homing: issuing retraction move to retractpos={retractpos}")
+            self.toolhead.move(retractpos, homing_info.retract_speed)
+
+            second_startpos = list(retractpos)
+            second_startpos[-1] = retractpos[-1] - (homepos[-1] - startpos[-1]) * retract_r
+            logging.info(f"_run_extruder_homing: issuing second homing move with startpos={second_startpos}")
+            self.toolhead.set_position(second_startpos)
+
+            hmove = HomingMove(self.printer, endstops, self.toolhead)
+            logging.info(f"_run_extruder_homing: starting second home startpos={second_startpos} and homepos={homepos}")
+            hmove.homing_move(movepos=homepos, speed=homing_info.second_homing_speed,
+                              triggered=True, check_triggered=True)
+
+            if hmove.check_no_movement() is not None:
+                raise self.printer.command_error(
+                    "Endstop %s still triggered after retract"
+                    % (hmove.check_no_movement(),))
+
     cmd_HOME_EXTRUDER_help = "Home an extruder using an endstop. Only the active extruder can be homed."
     def cmd_HOME_EXTRUDER(self, gcmd):
         """
@@ -185,15 +218,11 @@ class ExtruderHoming:
         #       See PrinterRail at stepper.py.
         endstops = self.rail.get_endstops()                 # [(mcu_endstop, name)]
 
-        # NOTE: get a PrinterHoming class from extras.
-        phoming: PrinterHoming = self.printer.lookup_object('homing')      # PrinterHoming
-
         # NOTE: Get original toolhead position
         self.th_orig_pos = self.toolhead.get_position()
 
         # NOTE: Get homing information, speed and move coordinate.
         self.homing_info = self.rail.get_homing_info()
-        speed = self.homing_info.speed
 
         # TODO: Enable and test SPEED parameter for extruder homing.
         # Use the speed passed by the user if provided, or the default speed if not.
@@ -224,30 +253,17 @@ class ExtruderHoming:
         # NOTE: flag homing start
         self.homing = True
 
-        # NOTE: "manual_home" is defined in the PrinterHoming class (at homing.py).
-        #       The method instantiates a "HomingMove" class by passing it the
-        #       "endstops" and "toolhead" objects.
-        #       The requried "endstop"s are from the extruder's PrinterRail object.
-        #       In the "manual_stepper" object, the very "self" object is passed
-        #       as a "virtual toolhead" to "manual_home". Here, in contrast, the full
-        #       toolhead object is passed because it has been modified to support homing
-        #       the extruder axis too.
-        # NOTE: "PrinterHoming.manual_home" then calls "HomingMove.homing_move".
         logging.info(f"cmd_HOME_EXTRUDER: pos={str(pos)}")
         try:
-            phoming.manual_home(toolhead=self.toolhead, endstops=endstops,
-                                pos=pos, speed=speed,
-                                # NOTE: argument passed to "mcu_endstop.home_start",
-                                #       and used directly in the low-level command.
-                                triggered=True,
-                                # NOTE: if True, an "error" is recorded when the move
-                                #       completes without the endstop triggering.
-                                check_triggered=True)
+            self._run_extruder_homing(endstops=endstops, startpos=startpos,
+                                      homepos=pos, homing_info=self.homing_info)
         except self.printer.command_error as e:
             # Reset the motor's limits if an error occurs, and re-raise it.
             # TODO: Handle the disable pin properly, here print_time is a palceholder.
             self.extruder_stepper._motor_off(print_time=None)
             raise e
+        finally:
+            self.homing = False
 
         # NOTE: Update positions in gcode_move, fixes inaccurate first
         #       relative move. Might not be needed since actually using
@@ -267,9 +283,6 @@ class ExtruderHoming:
             except:
                 raise gcmd.error("ExtruderHoming.cmd_HOME_EXTRUDER: " +
                                 f"Error re-activating {self.active_extruder_name}.")
-
-        # NOTE: flag homing end
-        self.homing = False
 
     cmd_HOME_ACTIVE_EXTRUDER_help = "Home an extruder using an endstop. The active extruder will be homed."
     def cmd_HOME_ACTIVE_EXTRUDER(self, gcmd):
@@ -296,15 +309,11 @@ class ExtruderHoming:
         #       See PrinterRail at stepper.py.
         endstops = rail.get_endstops()                      # [(mcu_endstop, name)]
 
-        # NOTE: get a PrinterHoming class from extras
-        phoming: PrinterHoming = self.printer.lookup_object('homing')      # PrinterHoming
-
         # NOTE: Get original toolhead position
         th_orig_pos = toolhead.get_position()
 
         # NOTE: get homing information, speed and move coordinate.
         homing_info = rail.get_homing_info()
-        speed = homing_info.speed
         # NOTE: Use XYZ from the toolhead, and E from the config file + estimation.
         pos = th_orig_pos[:-1] + [self.get_movepos(homing_info=homing_info, rail=rail)]
 
@@ -314,7 +323,7 @@ class ExtruderHoming:
         # NOTE: Force extruder to a certain starting position.
         #       Originally 0.0, now position_max, which requires an
         #       endstop position of 0.0 to home in the right direction.
-        if self.homing_info.positive_dir:
+        if homing_info.positive_dir:
             # Set the starting position 5% further from the endstop (more negative).
             # NOTE: pos[-1] is the endstop's position.
             e_startpos = (position_min - pos[-1]) * 1.05
@@ -334,17 +343,15 @@ class ExtruderHoming:
         self.homing = True
 
         logging.info(f"cmd_HOME_EXTRUDER: pos={str(pos)}")
-        phoming.manual_home(toolhead=toolhead, endstops=endstops,
-                            pos=pos, speed=speed,
-                            # NOTE: argument passed to "mcu_endstop.home_start",
-                            #       and used directly in the low-level command.
-                            triggered=True,
-                            # NOTE: if True, an "error" is recorded when the move
-                            #       completes without the endstop triggering.
-                            check_triggered=True)
-
-        # NOTE: flag homing end
-        self.homing = False
+        self.toolhead = toolhead
+        try:
+            self._run_extruder_homing(endstops=endstops, startpos=startpos,
+                                      homepos=pos, homing_info=homing_info)
+        except self.printer.command_error as e:
+            extruder_stepper._motor_off(print_time=None)
+            raise e
+        finally:
+            self.homing = False
 
     def get_movepos(self, homing_info, rail=None):
         # NOTE: based on "_home_axis" from CartKinematics, it estimates
