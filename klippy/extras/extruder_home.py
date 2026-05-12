@@ -1,6 +1,6 @@
 # By naikymen and mdwasp
 # Original idea at: https://discord.com/channels/627982902738681876/1046618170993160202/1046808809894588457
-# Relevant issue: https://gitlab.com/pipettin-bot/pipettin-grbl/-/issues/47#note_1215525244
+# Relevant issue: https://gitlab.com/open-la/pipettin-bot/-/issues/47#note_1215525244
 # Module distributed under the terms of the GNU GPL v3 licence.
 #
 #

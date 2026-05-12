@@ -106,7 +106,7 @@ This fork implements:
     - This means that absolute moves will be interpreted relatively to the restored extruder coordinate.
     - For extruders this might make sense (at least in Klipper), but results in a problem with Mainsail, which saves and restores the GCODE state around manual move (e.g. after homing to 0 and a relative move to +3, an absolute move to 0 would do nothing against expectations).
     - Maybe this is related to interrupting GCODE programs that use absolute coordinates for extruders, without messing them up when they resume if the extruder was moved (e.g. for a filament change).
-    - Set `relative_e_restore: False` under `[printer]` to disable this, [or hack Mainsail's macros](https://gitlab.com/pipettin-bot/pipettin-bot/-/blob/04197efe78d367d2ec5182f59db8b23af1685b30/code/klipper-setup/configs/mainsail_dummy.cfg#L29)
+    - Set `relative_e_restore: False` under `[printer]` to disable this, [or hack Mainsail's macros](https://gitlab.com/open-la/pipettin-bot/-/blob/04197efe78d367d2ec5182f59db8b23af1685b30/code/klipper-setup/configs/mainsail_dummy.cfg#L29)
 - The PID controller now uses sample averaging and linear regression to compute the P and D terms, respectively.
     - This replaces the rather obscure pre-existing logic.
     - This brings much improvement for noisy ADCs, such as the one in my Arduino UNO.
@@ -178,7 +178,7 @@ Thanks to some [changes in upstream moonraker](https://github.com/Arksine/moonra
 
 See examples here:
 
-- <https://gitlab.com/pipettin-bot/pipettin-bot/-/tree/master/code/klipper-setup/configs>
+- <https://gitlab.com/open-la/pipettin-bot/-/tree/master/code/klipper-setup/configs>
 
 These are meant as _soft_ reference configs; you _must_ adjust them to match your setup before using them. Some of them may be outdated.
 
@@ -233,7 +233,7 @@ Then configure the additional ABC steppers, exactly the ones specified in the `a
 
 Examples:
 
-- Find [here](https://gitlab.com/pipettin-bot/forks/firmware/klipper-stack/-/tree/pipetting/printer_data/config?ref_type=heads) example configs. Look for folders with an A, B or C in their names.
+- Find [here](https://gitlab.com/open-la/forks/firmware/klipper-stack/-/tree/pipetting/printer_data/config?ref_type=heads) example configs. Look for folders with an A, B or C in their names.
 
 What works:
 
