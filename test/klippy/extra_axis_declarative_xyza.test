@@ -1,0 +1,10 @@
+# F1 test: partial ABC axis set (XYZA) — only A is declared.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative_xyza.cfg
+
+G28
+G1 X20 Y20 Z10 A10 F3000
+G1 A25
+G1 X25 Y25 A30
+GET_POSITION
+M84

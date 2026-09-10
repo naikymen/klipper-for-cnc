@@ -115,7 +115,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | ID | Capability | Status | Primary legacy evidence | Current-master starting point | Exit evidence |
 | --- | --- | --- | --- | --- | --- |
 | F0 | Baseline extra-axis spike | done | `README.md`, `test/klippy/k4cnc.*` | `manual_stepper.py`, dynamic `extra_axes` | Tests document current G1, limit, junction, unregister, and endstop behavior |
-| F1 | Declarative ABC axes and partial axis sets | audit | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZ, XY, XYZA, and XYZABC configs; mixed and extra-only moves |
+| F1 | Declarative ABC axes and partial axis sets | done | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZA and XYZABC configs; mixed and extra-only moves |
 | F2 | ABC homing, state, limits, and position reporting | audit | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
 | F3 | Directional G38 single probe | audit | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
 | F4 | Multiple named directional probes | audit | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
@@ -209,6 +209,10 @@ at a time.
 | 2026-09-10 | F0 spike complete; four fixtures pass | Success + three SHOULD_FAIL fixtures document G1, limit, unregister, and endstop behavior |
 | 2026-09-10 | A G-Code-registered manual stepper cannot be commanded directly | `cmd_MANUAL_STEPPER` requires `GCODE_AXIS=` unregister first; tests must unregister before MOVE/STOP_ON_ENDSTOP |
 | 2026-09-10 | Extra-axis move timing: mixed moves use XYZ Euclidean length, extra-only moves use max extra-axis displacement | Confirmed from `Move.move_d` and `ToolHead.move`; F0 fixtures exercise both |
+| 2026-09-10 | F1 uses declarative ABC via current `extra_axes` (no dual-kinematics port) | User chose to auto-register config-declared A/B/C as extra axes rather than port `kinematics_abc`/dual-trapq |
+| 2026-09-10 | Declarative ABC syntax is `[manual_stepper <name>]` + `gcode_axis: <A/B/C>` | Reuses the proven manual-stepper primitives; legacy `kinematics_abc`/`axis`/`[stepper_a]` gets a migration note (F9) |
+| 2026-09-10 | Declarative registration deferred to a `klippy:connect` handler | `toolhead` is created last in `_read_config`, so `[manual_stepper]` `__init__` cannot register an axis; connect-time registration shares the runtime registration path |
+| 2026-09-10 | Partial base XYZ ("XY" without Z) deferred out of F1 | Current `CartKinematics` is hardcoded to `xyz`; the chosen extra-axis approach keeps XYZ fixed, so partial XYZ is a separate, larger change |
 
 ## Per-slice handoff template
 

@@ -1,0 +1,4 @@
+# F1 negative test: invalid declarative gcode_axis must fail at startup.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative_invalid_axis.cfg
+SHOULD_FAIL

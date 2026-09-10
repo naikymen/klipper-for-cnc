@@ -36,6 +36,18 @@ class ManualStepper:
         self.axis_gcode_id = None
         self.instant_corner_v = 0.
         self.gaxis_limit_velocity = self.gaxis_limit_accel = 0.
+        # Optionally auto-register as a gcode axis once the toolhead exists
+        self.decl_gcode_axis = config.get('gcode_axis', None)
+        if self.decl_gcode_axis is not None:
+            self.decl_gcode_axis = self.decl_gcode_axis.upper()
+            self.decl_instant_corner_v = config.getfloat(
+                'instantaneous_corner_velocity', 1., minval=0.)
+            self.decl_limit_velocity = config.getfloat(
+                'limit_velocity', 999999.9, above=0.)
+            self.decl_limit_accel = config.getfloat(
+                'limit_accel', 999999.9, above=0.)
+            self.printer.register_event_handler("klippy:connect",
+                                                self._handle_connect)
         # Register commands
         stepper_name = self.name.split()[1]
         gcode = self.printer.lookup_object('gcode')
@@ -136,17 +148,12 @@ class ManualStepper:
         elif gcmd.get_int('SYNC', 0):
             self.sync_print_time()
     # Register as a gcode axis
-    def command_with_gcode_axis(self, gcmd):
-        gcode_move = self.printer.lookup_object("gcode_move")
+    def _register_gcode_axis(self, gcode_axis, instant_corner_v,
+                             limit_velocity, limit_accel, raise_error):
         toolhead = self.printer.lookup_object('toolhead')
-        gcode_axis = gcmd.get('GCODE_AXIS').upper()
-        instant_corner_v = gcmd.get_float('INSTANTANEOUS_CORNER_VELOCITY', 1.,
-                                          minval=0.)
-        limit_velocity = gcmd.get_float('LIMIT_VELOCITY', 999999.9, above=0.)
-        limit_accel = gcmd.get_float('LIMIT_ACCEL', 999999.9, above=0.)
         if self.axis_gcode_id is not None:
             if gcode_axis:
-                raise gcmd.error("Must unregister axis first")
+                raise raise_error("Must unregister axis first")
             # Unregister
             toolhead.remove_extra_axis(self)
             self.axis_gcode_id = None
@@ -156,15 +163,30 @@ class ManualStepper:
             if not gcode_axis:
                 # Request to unregister already unregistered axis
                 return
-            raise gcmd.error("Not a valid GCODE_AXIS")
+            raise raise_error("Not a valid GCODE_AXIS")
         for ea in toolhead.get_extra_axes():
             if ea is not None and ea.get_axis_gcode_id() == gcode_axis:
-                raise gcmd.error("Axis '%s' already registered" % (gcode_axis,))
+                raise raise_error(
+                    "Axis '%s' already registered" % (gcode_axis,))
         self.axis_gcode_id = gcode_axis
         self.instant_corner_v = instant_corner_v
         self.gaxis_limit_velocity = limit_velocity
         self.gaxis_limit_accel = limit_accel
         toolhead.add_extra_axis(self, self.commanded_pos)
+    def command_with_gcode_axis(self, gcmd):
+        gcode_axis = gcmd.get('GCODE_AXIS').upper()
+        instant_corner_v = gcmd.get_float('INSTANTANEOUS_CORNER_VELOCITY', 1.,
+                                          minval=0.)
+        limit_velocity = gcmd.get_float('LIMIT_VELOCITY', 999999.9, above=0.)
+        limit_accel = gcmd.get_float('LIMIT_ACCEL', 999999.9, above=0.)
+        self._register_gcode_axis(gcode_axis, instant_corner_v,
+                                  limit_velocity, limit_accel, gcmd.error)
+    def _handle_connect(self):
+        self._register_gcode_axis(self.decl_gcode_axis,
+                                  self.decl_instant_corner_v,
+                                  self.decl_limit_velocity,
+                                  self.decl_limit_accel,
+                                  self.printer.config_error)
     def process_move(self, print_time, move, ea_index):
         axis_r = move.axes_r[ea_index]
         start_pos = move.start_pos[ea_index]
