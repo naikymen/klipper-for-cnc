@@ -1,0 +1,54 @@
+# Test case documenting current ToolHead extra-axis behavior (F0).
+#
+# This captures, on current master, how a manually configured stepper
+# registered as a G-Code axis participates in G1 motion, limits,
+# junction handling, unregistering, and endstop-assisted moves. It is
+# the behavioral baseline that declarative ABC axes (F1/F2) must not
+# break.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis.cfg
+
+# Register the A axis with explicit velocity/acceleration limits and a
+# corner velocity for junction handling.
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=A LIMIT_VELOCITY=20 LIMIT_ACCEL=500 INSTANTANEOUS_CORNER_VELOCITY=5
+
+# Home XYZ before exercising spatial moves.
+G28
+
+# Mixed XYZ + extra-axis move: A is synchronized to the XYZ move.
+G1 X20 Y20 Z10 A10 F3000
+
+# Extra-axis-only move.
+G1 A25
+
+# Register a second extra axis (B), attached to an endstop-equipped
+# manual stepper.
+MANUAL_STEPPER STEPPER=homing_stepper GCODE_AXIS=B
+
+# Mixed XYZ + multiple extra axes.
+G1 X25 Y25 A30 B5
+
+# Position query commands work with extra axes present.
+GET_POSITION
+M114
+
+# Unregister A; spatial XYZ moves keep working.
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=
+G1 X15 Y15 Z5
+
+# Re-register A.
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=A
+G1 X20 Y20 A20
+
+# Unregister B so it can be commanded directly for endstop moves.
+MANUAL_STEPPER STEPPER=homing_stepper GCODE_AXIS=
+
+# Endstop-assisted moves: home toward the endstop (batch mode triggers
+# the simulated endstop), then a non-failing "try" variant.
+MANUAL_STEPPER STEPPER=homing_stepper ENABLE=1
+MANUAL_STEPPER STEPPER=homing_stepper SET_POSITION=0
+MANUAL_STEPPER STEPPER=homing_stepper STOP_ON_ENDSTOP=home MOVE=10 SPEED=20 ACCEL=500
+MANUAL_STEPPER STEPPER=homing_stepper STOP_ON_ENDSTOP=try_probe MOVE=5 SPEED=20 ACCEL=500
+
+# Motor off (also exercises clean teardown with a registered axis).
+M84

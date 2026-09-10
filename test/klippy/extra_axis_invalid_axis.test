@@ -1,0 +1,9 @@
+# Negative test: invalid G-Code axis registration.
+#
+# Only a single uppercase letter outside "XYZEFN" may be registered as
+# an extra G-Code axis. Registering "E" must be rejected.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis.cfg
+SHOULD_FAIL
+
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=E

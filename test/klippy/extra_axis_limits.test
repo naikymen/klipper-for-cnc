@@ -1,0 +1,10 @@
+# Negative test: extra-axis soft limit enforcement on G1.
+#
+# a_stepper is configured with position_max=100, so a G1 move that
+# drives the registered A axis beyond that must be rejected.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis.cfg
+SHOULD_FAIL
+
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=A
+G1 A200

@@ -114,7 +114,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 
 | ID | Capability | Status | Primary legacy evidence | Current-master starting point | Exit evidence |
 | --- | --- | --- | --- | --- | --- |
-| F0 | Baseline extra-axis spike | audit | `README.md`, `test/klippy/k4cnc.*` | `manual_stepper.py`, dynamic `extra_axes` | Tests document current G1, limit, junction, unregister, and endstop behavior |
+| F0 | Baseline extra-axis spike | done | `README.md`, `test/klippy/k4cnc.*` | `manual_stepper.py`, dynamic `extra_axes` | Tests document current G1, limit, junction, unregister, and endstop behavior |
 | F1 | Declarative ABC axes and partial axis sets | audit | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZ, XY, XYZA, and XYZABC configs; mixed and extra-only moves |
 | F2 | ABC homing, state, limits, and position reporting | audit | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
 | F3 | Directional G38 single probe | audit | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
@@ -205,6 +205,10 @@ at a time.
 | 2026-09-10 | Create `cnc-reimplementation` directly from `master` | Keeps the new implementation on the current upstream architecture |
 | 2026-09-10 | Keep `develop` read-only and prohibit wholesale replay | The branch mixes years of upstream merges, experiments, debug notes, and coupled core edits |
 | 2026-09-10 | Begin with an upstream extra-axis capability spike | Current Klipper already implements dynamic G-Code axes and synchronized manual steppers |
+| 2026-09-10 | F0 tests run against a CI-built current-master dictionary | `data-dict` artifact from build-test run #49 (`2d7717e`) supplied a valid `atmega2560.dict` without an AVR toolchain |
+| 2026-09-10 | F0 spike complete; four fixtures pass | Success + three SHOULD_FAIL fixtures document G1, limit, unregister, and endstop behavior |
+| 2026-09-10 | A G-Code-registered manual stepper cannot be commanded directly | `cmd_MANUAL_STEPPER` requires `GCODE_AXIS=` unregister first; tests must unregister before MOVE/STOP_ON_ENDSTOP |
+| 2026-09-10 | Extra-axis move timing: mixed moves use XYZ Euclidean length, extra-only moves use max extra-axis displacement | Confirmed from `Move.move_d` and `ToolHead.move`; F0 fixtures exercise both |
 
 ## Per-slice handoff template
 

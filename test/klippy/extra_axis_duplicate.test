@@ -1,0 +1,10 @@
+# Negative test: duplicate extra G-Code axis registration.
+#
+# Two manual steppers may not be registered under the same G-Code axis
+# letter at the same time.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis.cfg
+SHOULD_FAIL
+
+MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=A
+MANUAL_STEPPER STEPPER=homing_stepper GCODE_AXIS=A
