@@ -1,0 +1,11 @@
+# F3 negative test: G38 rejects malformed probe moves.
+#
+# A G38 command without an X, Y or Z axis word must fail.
+DICTIONARY atmega2560.dict
+CONFIG probe_g38.cfg
+SHOULD_FAIL
+
+G28
+
+# No axis specified: this must raise a command error.
+G38.2

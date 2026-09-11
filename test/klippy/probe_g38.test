@@ -1,0 +1,39 @@
+# F3 test: directional G38 single-probe commands.
+#
+# Exercises the four LinuxCNC-style probe variants (G38.2-G38.5) on a
+# cartesian machine, in both absolute and relative coordinate modes, with
+# explicit feedrates, plus the QUERY_PROBE command. In file-output mode the
+# simulated MCU reports the probe trigger at the end of each move, so every
+# variant completes successfully.
+DICTIONARY atmega2560.dict
+CONFIG probe_g38.cfg
+
+# Home the machine and set a baseline feedrate.
+G28
+G1 F3000
+
+# Move to a known position.
+G1 X50 Y50 Z10
+
+# G38.2: probe toward the workpiece (error on failure).
+G38.2 X90 F1500
+
+# G38.3: probe toward the workpiece (no error on failure).
+G38.3 Y90 F1500
+
+# G38.4: probe away from the workpiece (error on failure).
+G38.4 X40 F1500
+
+# G38.5: probe away from the workpiece (no error on failure).
+G38.5 Y40 F1500
+
+# Relative-coordinate probing (G91).
+G91
+G38.2 X-10 F1500
+G90
+
+# Probe state query.
+QUERY_PROBE
+
+# Confirm the machine still moves normally after probing.
+G1 X20 Y20 Z20 F3000

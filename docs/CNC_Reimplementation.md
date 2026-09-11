@@ -117,7 +117,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F0 | Baseline extra-axis spike | done | `README.md`, `test/klippy/k4cnc.*` | `manual_stepper.py`, dynamic `extra_axes` | Tests document current G1, limit, junction, unregister, and endstop behavior |
 | F1 | Declarative ABC axes and partial axis sets | done | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZA and XYZABC configs; mixed and extra-only moves |
 | F2 | ABC homing, state, limits, and position reporting | done | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
-| F3 | Directional G38 single probe | audit | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
+| F3 | Directional G38 single probe | done | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
 | F4 | Multiple named directional probes | audit | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
 | F5 | Home-able extruder steppers | audit | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
 | F6 | Extruder coordinate and limit semantics | audit | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
@@ -182,7 +182,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 
 | Feature | Legacy evidence | Strategy | Core edit? |
 | --- | --- | --- | --- |
-| F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extra over `homing.probing_move`; register `G38.2`–`G38.5` handlers | no |
+| F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extra over `HomingMove` (imported directly) with a local axes-filtered no-movement check; register `G38.2`–`G38.5` handlers | no |
 | F5 | `extruder_home.py`, `extruder.py` | New extra over `manual_stepper`/`homing` homing primitives | no |
 | F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Wrap `RESTORE_GCODE_STATE` and saved-state logic via `register_command(..., None)` | no (see note) |
 | F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
@@ -281,6 +281,9 @@ at a time.
 | 2026-09-10 | Adopt an extras-first policy for F3–F9 and S1–S8 | Every remaining feature fits an existing extension point; core edits are reserved for mid-method checks like `M211` (already landed with F2) |
 | 2026-09-10 | Discard `develop` core deltas that are upstream drift | `mcu.py`, `stepper.py`, `reactor.py`, `mathutil.py`, and most of `toolhead.py` differ because `develop` predates upstream refactors, not because of fork features |
 | 2026-09-10 | F3/F4/F5/F7/F8/S1/S3/S6 are pure extras; F6 and S5 use command/method wrapping | Reuse `homing.probing_move`, manual-stepper homing, `gcode_arcs.py`, `heaters.py`, and `get_status` wrapping instead of core edits |
+| 2026-09-10 | F3 is a pure extra that imports `HomingMove` directly instead of `homing.probing_move` | `probing_move` hardcodes `probe_pos=True` and cannot forward `triggered`/`check_triggered`, and its `check_no_movement` has no axis filter; importing `HomingMove` and doing a local axes-filtered no-movement check avoids a core edit |
+| 2026-09-10 | F3 maps G38.2/3/4/5 to `homing_move(triggered=, check_triggered=)` | `triggered`=trigger-invert, `check_triggered`=error-out; current `home_wait` returns `0.0` for a clean no-trigger so `check_triggered=False` reports "ended without trigger" without the legacy timeout-string mapping |
+| 2026-09-10 | F3 scope is XYZ-only; E probing and named probes deferred | Matches `develop`'s working G38 (it left a "TODO: update G38 to work with ABC axis"); extruder probing belongs to F5/F6 and named probes to F4 |
 
 ## Per-slice handoff template
 
