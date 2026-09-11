@@ -116,7 +116,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | --- | --- | --- | --- | --- | --- |
 | F0 | Baseline extra-axis spike | done | `README.md`, `test/klippy/k4cnc.*` | `manual_stepper.py`, dynamic `extra_axes` | Tests document current G1, limit, junction, unregister, and endstop behavior |
 | F1 | Declarative ABC axes and partial axis sets | done | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZA and XYZABC configs; mixed and extra-only moves |
-| F2 | ABC homing, state, limits, and position reporting | audit | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
+| F2 | ABC homing, state, limits, and position reporting | done | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
 | F3 | Directional G38 single probe | audit | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
 | F4 | Multiple named directional probes | audit | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
 | F5 | Home-able extruder steppers | audit | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
@@ -141,6 +141,64 @@ the user before spending substantial implementation effort.
 | S6 | `GET_STATUS_MSG` console helper and extra motion-report fields | Fold into status/reporting design where still useful |
 | S7 | AVR compatibility fixes and requirement changes | Verify whether already present upstream; do not port blindly |
 | S8 | Branding, funding, issue templates, install scripts, and old images | Defer until functional compatibility and release preparation |
+
+## Feature integration strategy: extras first
+
+The audit and F0–F2 confirm the fork's remaining behavior can be rebuilt as
+Klipper *extras* (`klippy/extras/` modules) that alter core behavior through
+existing extension points, with only `M211` (already landed with F2) requiring
+a small core hook. Adopt this policy for F3–F9 and S1–S8:
+
+1. **Extras first.** Implement each feature as a loadable extra rather than an
+   edit to a core file (`toolhead.py`, `gcode.py`, `mcu.py`, `stepper.py`,
+   `reactor.py`, kinematics, etc.).
+2. **Core hook only when a check is embedded mid-method.** Reserve core edits
+   for cases where one behavior is interleaved with unrelated logic inside a
+   core method, making a wrapper unsafe. `M211` is the one instance found.
+3. **Discard upstream drift.** Large `develop`↔`master` deltas in `mcu.py`,
+   `stepper.py`, `reactor.py`, `mathutil.py`, and most of `toolhead.py` reflect
+   `develop` predating upstream refactors, not fork features. Do not port them.
+
+### Extension mechanisms available on `master`
+
+- **Replace a G-Code command.** `gcode.register_command(cmd, None)` returns the
+  previous handler; re-register a wrapper that delegates or replaces it
+  (`safe_z_home.py`'s `G28` pattern).
+- **Move-transform chain.** `gcode_move.set_move_transform(self)` composes
+  per-move transforms (`skew_correction`, `bed_mesh`, `bed_tilt`,
+  `exclude_object`).
+- **Deferred connect hook.** `register_event_handler("klippy:connect", ...)`
+  runs after `toolhead` exists, so an extra can register axes or wrap core
+  singletons.
+- **Singleton reach-in.** `printer.lookup_object("toolhead" | "gcode" |
+  "gcode_move" | "homing" | "probe")`.
+- **Motion primitives.** `homing.probing_move()`, `homing.manual_home()`, and
+  `manual_stepper` endstop modes back the probing and homing slices.
+- **Instance monkey-patching.** Wrap a looked-up object's method with a
+  `functools.wraps` closure (e.g. `toolhead.get_status`) to extend behavior
+  without editing core.
+
+### Per-feature classification
+
+| Feature | Legacy evidence | Strategy | Core edit? |
+| --- | --- | --- | --- |
+| F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extra over `homing.probing_move`; register `G38.2`–`G38.5` handlers | no |
+| F5 | `extruder_home.py`, `extruder.py` | New extra over `manual_stepper`/`homing` homing primitives | no |
+| F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Wrap `RESTORE_GCODE_STATE` and saved-state logic via `register_command(..., None)` | no (see note) |
+| F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
+| F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); re-derive numpy-free | no (extra file) |
+| S1 | `manual_spinner.py` | Existing manual-stepper APIs | no |
+| S3 | `skew_correction.py` `SET_SKEW_FACTORS` | Already an extra, self-contained | no (extra file) |
+| S5 | `gcode.py`, `webhooks.py` | Wrap `gcode.get_command_help` plus the help webhook; a ~15-line `gcode.py` edit is the fallback | optional |
+| S6 | `toolhead.py` status fields | Monkey-patch `toolhead.get_status()` | no |
+| `M211` | `toolhead.py`, kinematics | Flag + accessor consulted in the `check_move` sites | **yes (minimal, landed with F2)** |
+| `cartesian_abc.py` / `corexy_abc.py`, multi-toolhead experiments | — | Superseded by `generic_cartesian` + `extra_axes` | n/a (do not port) |
+
+Notes: F6's tool-change absolute-E behavior may need a small `gcode_move.py`
+touch if wrapping `RESTORE_GCODE_STATE` proves insufficient; decide during the
+F6 slice and record it. S2 (`pipettin.py`), S4 (`QUERY_HX71`), S7 (AVR fixes),
+and S8 (branding/docs) are covered by their existing defer/audit dispositions
+and are omitted from this table.
 
 ## Recommended implementation order
 
@@ -213,6 +271,16 @@ at a time.
 | 2026-09-10 | Declarative ABC syntax is `[manual_stepper <name>]` + `gcode_axis: <A/B/C>` | Reuses the proven manual-stepper primitives; legacy `kinematics_abc`/`axis`/`[stepper_a]` gets a migration note (F9) |
 | 2026-09-10 | Declarative registration deferred to a `klippy:connect` handler | `toolhead` is created last in `_read_config`, so `[manual_stepper]` `__init__` cannot register an axis; connect-time registration shares the runtime registration path |
 | 2026-09-10 | Partial base XYZ ("XY" without Z) deferred out of F1 | Current `CartKinematics` is hardcoded to `xyz`; the chosen extra-axis approach keeps XYZ fixed, so partial XYZ is a separate, larger change |
+| 2026-09-10 | Bare `G28` homes XYZ plus every homeable extra axis, ordered and sequential | Matches `develop`; extra axes home after the XYZ kinematic pass |
+| 2026-09-10 | `G28 <A/B/C>` routes to the matching extra axis's `home()` | Reuses `HomingMove` with the manual stepper acting as a mini-toolhead, matching `develop`'s per-axis path |
+| 2026-09-10 | "Must home axis first" applies only to registered, homeable axes; non-homeable and unregistered axes are exempt | `check_move` only runs for axes with non-zero `axes_d`, and `can_home=False` axes skip the guard |
+| 2026-09-10 | `M211` gates only out-of-bounds checks, not "must home first" | Faithful to `develop` (`limit_checks_enabled` defaults true) |
+| 2026-09-10 | `M84`/`motor_off` clears XYZ plus every extra-axis gcode id from homing state | `ToolHead.clear_homing_state` fans out to kinematics and each extra axis |
+| 2026-09-10 | `toolhead.homed_axes` stays XYZ-only; extra-axis homing state is exposed per axis object | Mainsail's `ZoffsetControl` uses an exact `homed_axes === 'xyz'` check for babystepping `MOVE=1`, so appending A/B/C would silently break it; Moonraker only does substring membership checks but the exact match is decisive |
+| 2026-09-10 | `M114`/`GET_POSITION` report extra axes after `E` (`X Y Z E A B C`) | Preserves the upstream `X Y Z E` token prefix that existing console/position parsers rely on; `develop` inserts A/B/C before E, which shifts the E token |
+| 2026-09-10 | Adopt an extras-first policy for F3–F9 and S1–S8 | Every remaining feature fits an existing extension point; core edits are reserved for mid-method checks like `M211` (already landed with F2) |
+| 2026-09-10 | Discard `develop` core deltas that are upstream drift | `mcu.py`, `stepper.py`, `reactor.py`, `mathutil.py`, and most of `toolhead.py` differ because `develop` predates upstream refactors, not because of fork features |
+| 2026-09-10 | F3/F4/F5/F7/F8/S1/S3/S6 are pure extras; F6 and S5 use command/method wrapping | Reuse `homing.probing_move`, manual-stepper homing, `gcode_arcs.py`, `heaters.py`, and `get_status` wrapping instead of core edits |
 
 ## Per-slice handoff template
 

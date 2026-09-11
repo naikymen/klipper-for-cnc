@@ -214,6 +214,8 @@ class ToolHead:
             'square_corner_velocity', 5., minval=0.)
         self.junction_deviation = self.mcr_pseudo_accel = 0.
         self._calc_junction_deviation()
+        # Software endstop/limit checks (toggled via M211)
+        self.limit_checks_enabled = True
         # Input stall detection
         self.check_stall_time = 0.
         self.print_stall = 0
@@ -455,6 +457,22 @@ class ToolHead:
         self.printer.send_event("toolhead:update_extra_axes")
     def get_extra_axes(self):
         return [None, None, None] + self.extra_axes
+    def get_extra_axis_index(self, ea):
+        if ea in self.extra_axes:
+            return self.extra_axes.index(ea) + 3
+        return None
+    def set_extra_axis_position(self, ea, position):
+        index = self.get_extra_axis_index(ea)
+        if index is not None:
+            self.commanded_pos[index] = position
+    def are_limits_enabled(self):
+        return self.limit_checks_enabled
+    def clear_homing_state(self, clear_axes):
+        self.kin.clear_homing_state(clear_axes)
+        for ea in self.extra_axes:
+            clear_func = getattr(ea, 'clear_homing_state', None)
+            if clear_func is not None:
+                clear_func(clear_axes)
     # Homing "drip move" handling
     def _drip_load_trapq(self, submit_move):
         # Queue move into trapezoid motion queue (trapq)
@@ -504,6 +522,10 @@ class ToolHead:
         print_time = self.print_time
         estimated_print_time = self.mcu.estimated_print_time(eventtime)
         extruder = self.extra_axes[0]
+        # Keep 'homed_axes' limited to the primary kinematics axes (XYZ).
+        # Extra-axis homing state is reported through each extra axis's own
+        # status object, which preserves Mainsail's "homed_axes == 'xyz'"
+        # babystepping check and other frontends' expectations.
         res = dict(self.kin.get_status(eventtime))
         res.update({ 'print_time': print_time,
                      'stalls': self.print_stall,
@@ -562,6 +584,8 @@ class ToolHeadCommandHelper:
                                self.cmd_SET_VELOCITY_LIMIT,
                                desc=self.cmd_SET_VELOCITY_LIMIT_help)
         gcode.register_command('M204', self.cmd_M204)
+        gcode.register_command('M211', self.cmd_M211,
+                               desc=self.cmd_M211_help)
     def cmd_G4(self, gcmd):
         # Dwell
         delay = gcmd.get_float('P', 0., minval=0.) / 1000.
@@ -600,6 +624,16 @@ class ToolHeadCommandHelper:
                 return
             accel = min(p, t)
         self.toolhead.set_max_velocities(None, accel, None, None)
+    cmd_M211_help = "Toggle software endstops and limits"
+    def cmd_M211(self, gcmd):
+        # Get S parameter (0 to disable, 1 to enable, or none to report)
+        enable = gcmd.get_int('S', None, minval=0, maxval=1)
+        if enable is not None:
+            self.toolhead.limit_checks_enabled = bool(enable)
+        gcmd.respond_info("Software endstops and limits are %s"
+                          % ("enabled"
+                             if self.toolhead.limit_checks_enabled
+                             else "disabled"))
 
 def add_printer_objects(config):
     printer = config.get_printer()

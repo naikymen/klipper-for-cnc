@@ -1,0 +1,39 @@
+# F2 test: ABC homing, homing state, soft limits, and position reporting.
+#
+# Exercises the extra-axis homing contract built on top of the F1
+# declarative ABC config: bare G28 homes every homeable extra axis,
+# explicit G28 <axis> homes a single extra axis, homeable axes require
+# homing before movement, non-homeable axes are exempt, M211 gates soft
+# limits, and M84 clears extra-axis homing state.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative.cfg
+
+# Bare G28 homes XYZ plus every homeable extra axis (B).
+G28
+
+# Homeable B moves after homing; non-homeable A/C move without homing.
+G1 X20 Y20 Z10 A10 B5 C10 F3000
+G1 A25 C30
+
+# Explicit single-axis homing of an extra axis.
+G28 B
+G1 B10
+
+# Position queries report all configured axes.
+GET_POSITION
+M114
+
+# M211 S0 disables soft-limit checks: out-of-range B move is allowed.
+M211 S0
+G1 B100
+
+# Re-enable limits and move back into range.
+M211 S1
+G1 B0
+
+# M84 clears homing state for XYZ and the extra axes.
+M84
+
+# Re-home the extra axis and move again.
+G28 B
+G1 B5

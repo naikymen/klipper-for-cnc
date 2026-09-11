@@ -116,7 +116,14 @@ class PrinterStepperEnable:
     def motor_off(self):
         self.set_motors_enable(self.get_steppers(), False)
         toolhead = self.printer.lookup_object('toolhead')
-        toolhead.get_kinematics().clear_homing_state("xyz")
+        clear_axes = "xyz"
+        for ea in toolhead.get_extra_axes():
+            if ea is None:
+                continue
+            gcode_id = getattr(ea, 'get_axis_gcode_id', None)
+            if gcode_id is not None:
+                clear_axes += gcode_id().lower()
+        toolhead.clear_homing_state(clear_axes)
         self.printer.send_event("stepper_enable:motor_off")
     def get_status(self, eventtime):
         steppers = { name: et.is_motor_enabled()

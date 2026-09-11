@@ -1,0 +1,13 @@
+# F2 test: moving a homeable extra axis out of range must fail.
+#
+# After homing, a B move beyond position_max (50) must fail while soft
+# limits are enabled (default M211 S1).
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative.cfg
+SHOULD_FAIL
+
+# Home XYZ and the homeable B axis.
+G28
+
+# Moving B beyond position_max must fail with soft limits enabled.
+G1 B100

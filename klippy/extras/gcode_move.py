@@ -95,6 +95,9 @@ class GCodeMove:
         p = [lp - bp for lp, bp in zip(self.last_position, self.base_position)]
         p[3] /= self.extrude_factor
         return p
+    def _format_axis_positions(self, positions):
+        return " ".join(["%s:%.6f" % (axis, positions[index])
+                         for axis, index in self.axis_map.items()])
     def _get_gcode_speed(self):
         return self.speed / self.speed_factor
     def _get_gcode_speed_override(self):
@@ -129,6 +132,7 @@ class GCodeMove:
             axis_map[gcode_id] = index
         self.axis_map = axis_map
         self.base_position[4:] = [0.] * (len(extra_axes) - 4)
+        self.homing_position[4:] = [0.] * (len(extra_axes) - 4)
         self.reset_last_position()
     # G-Code movement commands
     def cmd_G1(self, gcmd):
@@ -191,7 +195,9 @@ class GCodeMove:
     def cmd_M114(self, gcmd):
         # Get Current Position
         p = self._get_gcode_position()
-        gcmd.respond_raw("X:%.3f Y:%.3f Z:%.3f E:%.3f" % tuple(p[:4]))
+        parts = ["%s:%.3f" % (axis, p[index])
+                 for axis, index in self.axis_map.items()]
+        gcmd.respond_raw(" ".join(parts))
     def cmd_M220(self, gcmd):
         # Set speed factor override percentage
         value = gcmd.get_float('S', 100., above=0.) / (60. * 100.)
@@ -272,14 +278,10 @@ class GCodeMove:
         stepper_pos = " ".join(["%s:%.6f" % (a, v) for a, v in cinfo])
         kinfo = zip("XYZ", kin.calc_position(dict(cinfo)))
         kin_pos = " ".join(["%s:%.6f" % (a, v) for a, v in kinfo])
-        toolhead_pos = " ".join(["%s:%.6f" % (a, v) for a, v in zip(
-            "XYZE", toolhead.get_position()[:4])])
-        gcode_pos = " ".join(["%s:%.6f"  % (a, v)
-                              for a, v in zip("XYZE", self.last_position)])
-        base_pos = " ".join(["%s:%.6f"  % (a, v)
-                             for a, v in zip("XYZE", self.base_position)])
-        homing_pos = " ".join(["%s:%.6f"  % (a, v)
-                               for a, v in zip("XYZ", self.homing_position)])
+        toolhead_pos = self._format_axis_positions(toolhead.get_position())
+        gcode_pos = self._format_axis_positions(self.last_position)
+        base_pos = self._format_axis_positions(self.base_position)
+        homing_pos = self._format_axis_positions(self.homing_position)
         gcmd.respond_info("mcu: %s\n"
                           "stepper: %s\n"
                           "kinematic: %s\n"

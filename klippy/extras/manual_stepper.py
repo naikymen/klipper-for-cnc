@@ -5,7 +5,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import stepper
-from . import force_move
+from . import force_move, homing
 
 class ManualStepper:
     def __init__(self, config):
@@ -26,6 +26,7 @@ class ManualStepper:
         self.commanded_pos = 0.
         self.pos_min = config.getfloat('position_min', None)
         self.pos_max = config.getfloat('position_max', None)
+        self.homed = False
         # Setup iterative solver
         self.motion_queuing = self.printer.load_object(config, 'motion_queuing')
         self.trapq = self.motion_queuing.allocate_trapq()
@@ -72,6 +73,9 @@ class ManualStepper:
         toolhead.flush_step_generation()
         self.commanded_pos = setpos
         self.rail.set_position([self.commanded_pos, 0., 0.])
+        # Keep the toolhead's commanded position in sync when this stepper
+        # is registered as an extra axis (so G1 starts from the homed pos).
+        toolhead.set_extra_axis_position(self, setpos)
     def _submit_move(self, movetime, movepos, speed, accel):
         cp = self.commanded_pos
         dist = movepos - cp
@@ -200,11 +204,16 @@ class ManualStepper:
                           start_v, cruise_v, accel)
         self.commanded_pos = move.end_pos[ea_index]
     def check_move(self, move, ea_index):
+        # Enforce homing state before allowing movement
+        if self.can_home and not self.homed:
+            raise move.move_error("Must home axis %s first"
+                                  % (self.axis_gcode_id,))
         # Check move is in bounds
         movepos = move.end_pos[ea_index]
         if ((self.pos_min is not None and movepos < self.pos_min)
             or (self.pos_max is not None and movepos > self.pos_max)):
-            raise move.move_error()
+            if move.toolhead.are_limits_enabled():
+                raise move.move_error()
         # Check if need to limit maximum velocity and acceleration
         axis_ratio = move.move_d / abs(move.axes_d[ea_index])
         limit_velocity = self.gaxis_limit_velocity * axis_ratio
@@ -221,6 +230,67 @@ class ManualStepper:
         return self.axis_gcode_id
     def get_trapq(self):
         return self.trapq
+    # Homing support
+    def get_range(self):
+        return self.pos_min, self.pos_max
+    def clear_homing_state(self, clear_axes):
+        if self.axis_gcode_id is not None \
+                and self.axis_gcode_id.lower() in clear_axes:
+            self.homed = False
+    def get_status(self, eventtime):
+        return {'homed_axes': self.axis_gcode_id if self.homed else ''}
+    def _do_homing_move(self, endstops, homepos, speed):
+        hmove = homing.HomingMove(self.printer, endstops, self)
+        hmove.homing_move([homepos, 0., 0., 0.], speed)
+        return hmove
+    def _retract_move(self, homing_info, forcepos, homepos):
+        axes_d = homepos - forcepos
+        move_d = abs(axes_d)
+        retract_r = min(1., homing_info.retract_dist / move_d)
+        retractpos = homepos - axes_d * retract_r
+        self.do_move(retractpos, homing_info.retract_speed, self.homing_accel)
+        startpos = retractpos - axes_d * retract_r
+        self.do_set_position(startpos)
+        return homepos
+    def home(self, homing_state):
+        if not self.can_home:
+            raise self.printer.command_error(
+                "No endstop for manual stepper axis '%s'"
+                % (self.axis_gcode_id,))
+        if self.pos_min is None or self.pos_max is None:
+            raise self.printer.command_error(
+                "position_min and position_max must be configured to home "
+                "axis '%s'" % (self.axis_gcode_id,))
+        hi = self.rail.get_homing_info()
+        homepos = hi.position_endstop
+        if hi.positive_dir:
+            forcepos = homepos - 1.5 * (homepos - self.pos_min)
+        else:
+            forcepos = homepos + 1.5 * (self.pos_max - homepos)
+        self.homing_accel = self.accel
+        # Notify of upcoming homing operation
+        self.printer.send_event("homing:home_rails_begin", homing_state,
+                                [self.rail])
+        # Set the axis position to the start of the homing sweep
+        self.do_set_position(forcepos)
+        endstops = self.rail.get_endstops()
+        # Perform first home
+        hmove = self._do_homing_move(endstops, homepos, hi.speed)
+        # Perform second home after retracting
+        if hi.retract_dist:
+            self._retract_move(hi, forcepos, homepos)
+            hmove = self._do_homing_move(endstops, homepos,
+                                         hi.second_homing_speed)
+            if hmove.check_no_movement() is not None:
+                raise self.printer.command_error(
+                    "Endstop %s still triggered after retract"
+                    % (hmove.check_no_movement(),))
+        self.homed = True
+        homing_state.trigger_mcu_pos = {sp.stepper_name: sp.trig_pos
+                                        for sp in hmove.stepper_positions}
+        homing_state.adjust_pos = {}
+        self.printer.send_event("homing:home_rails_end", homing_state,
+                                [self.rail])
     # Toolhead wrappers to support homing
     def flush_step_generation(self):
         toolhead = self.printer.lookup_object('toolhead')

@@ -1,0 +1,13 @@
+# F2 test: moving a homeable extra axis before homing must fail.
+#
+# Home only X; the homeable B axis remains un-homed, so the subsequent
+# B move must raise "Must home axis B first".
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative.cfg
+SHOULD_FAIL
+
+# Home only X (B stays un-homed).
+G28 X
+
+# Moving B before homing must fail.
+G1 B5

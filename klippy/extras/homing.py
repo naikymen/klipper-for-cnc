@@ -336,23 +336,54 @@ class PrinterHoming:
         return epos
     def cmd_G28(self, gcmd):
         # Move to origin
+        toolhead = self.printer.lookup_object('toolhead')
         axes = []
         for pos, axis in enumerate('XYZ'):
             if gcmd.get(axis, None) is not None:
                 axes.append(pos)
-        if not axes:
+        # Determine requested extra (non-XYZ) axes
+        extra_axes = []
+        for index, ea in enumerate(toolhead.get_extra_axes()):
+            if ea is None or not hasattr(ea, 'home'):
+                continue
+            gcode_id = ea.get_axis_gcode_id()
+            if gcode_id is None:
+                continue
+            if gcmd.get(gcode_id, None) is not None:
+                extra_axes.append((ea, index))
+        if not axes and not extra_axes:
             axes = [0, 1, 2]
-        homing_state = Homing(self.printer)
-        homing_state.set_axes(axes)
-        kin = self.printer.lookup_object('toolhead').get_kinematics()
-        try:
-            kin.home(homing_state)
-        except self.printer.command_error:
-            if self.printer.is_shutdown():
-                raise self.printer.command_error(
-                    "Homing failed due to printer shutdown")
-            self.printer.lookup_object('stepper_enable').motor_off()
-            raise
+            # Home every homeable extra axis when none are specified
+            for index, ea in enumerate(toolhead.get_extra_axes()):
+                if ea is None or not hasattr(ea, 'home'):
+                    continue
+                if getattr(ea, 'can_home', False):
+                    extra_axes.append((ea, index))
+        # Home XYZ kinematics axes
+        if axes:
+            homing_state = Homing(self.printer)
+            homing_state.set_axes(axes)
+            kin = toolhead.get_kinematics()
+            try:
+                kin.home(homing_state)
+            except self.printer.command_error:
+                if self.printer.is_shutdown():
+                    raise self.printer.command_error(
+                        "Homing failed due to printer shutdown")
+                self.printer.lookup_object('stepper_enable').motor_off()
+                raise
+        # Home extra axes sequentially
+        for ea, index in extra_axes:
+            homing_state = Homing(self.printer)
+            homing_state.set_axes([index])
+            try:
+                ea.home(homing_state)
+            except self.printer.command_error:
+                if self.printer.is_shutdown():
+                    raise self.printer.command_error(
+                        "Homing failed due to printer shutdown")
+                self.printer.lookup_object('stepper_enable').motor_off()
+                raise
 
 def load_config(config):
     return PrinterHoming(config)

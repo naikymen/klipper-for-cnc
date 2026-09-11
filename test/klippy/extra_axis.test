@@ -25,6 +25,9 @@ G1 A25
 # manual stepper.
 MANUAL_STEPPER STEPPER=homing_stepper GCODE_AXIS=B
 
+# Home the new endstop-equipped axis before moving it (F2).
+G28 B
+
 # Mixed XYZ + multiple extra axes.
 G1 X25 Y25 A30 B5
 
