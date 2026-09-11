@@ -1,0 +1,7 @@
+# An unknown named probe must be rejected by the mux dispatcher.
+DICTIONARY atmega2560.dict
+CONFIG probe_g38_multi.cfg
+SHOULD_FAIL
+
+G28
+MULTIPROBE_TOWARD PROBE_NAME=missing X=90 F=1500

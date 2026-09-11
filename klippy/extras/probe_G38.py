@@ -1,22 +1,21 @@
 # Directional G38 probe support
 #
-# Copyright (C) 2017-2026  Kevin O'Connor <kevin@koconnor.net>
-#
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 from .homing import HomingMove
 
 
 class ProbeG38:
-    def __init__(self, config):
+    def __init__(self, config, endstop_name='probe'):
         self.printer = config.get_printer()
         self.recovery_time = config.getfloat('recovery_time', 0.4, minval=0.)
         # Create the probe endstop from the configured pin.
         self.mcu_endstop = self.printer.lookup_object('pins').setup_pin(
             'endstop', config.get('pin'))
         # Expose the probe through QUERY_ENDSTOPS / M119.
+        self.endstop_name = endstop_name
         query_endstops = self.printer.load_object(config, 'query_endstops')
-        query_endstops.register_endstop(self.mcu_endstop, 'probe')
+        query_endstops.register_endstop(self.mcu_endstop, self.endstop_name)
         # Register g-code commands.
         self.gcode = self.printer.lookup_object('gcode')
         self.toolhead = None
@@ -55,7 +54,8 @@ class ProbeG38:
         toolhead = self.printer.lookup_object('toolhead')
         print_time = toolhead.get_last_move_time()
         res = self.mcu_endstop.query_endstop(print_time)
-        gcmd.respond_info("probe: %s" % (["open", "TRIGGERED"][not not res],))
+        gcmd.respond_info("%s: %s" % (self.endstop_name,
+                                      ["open", "TRIGGERED"][not not res],))
 
     def _get_probe_move(self, gcmd):
         # Parse the target position and feedrate for a G38 move, mirroring
@@ -105,7 +105,8 @@ class ProbeG38:
         pos, speed, probe_axes = self._get_probe_move(gcmd)
         if self.recovery_time:
             self.toolhead.dwell(self.recovery_time)
-        hmove = HomingMove(self.printer, [(self.mcu_endstop, "probe")])
+        hmove = HomingMove(self.printer, [(self.mcu_endstop,
+                                           self.endstop_name)])
         try:
             epos = hmove.homing_move(pos, speed, probe_pos=True,
                                      triggered=trigger_invert,

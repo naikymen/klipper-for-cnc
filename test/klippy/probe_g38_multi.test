@@ -1,0 +1,24 @@
+# F4 test: named directional G38 probes.
+DICTIONARY atmega2560.dict
+CONFIG probe_g38_multi.cfg
+
+G28
+G1 X50 Y50 Z10 F3000
+
+# Explicit named commands exercise each probe and all four modes.
+MULTIPROBE_TOWARD PROBE_NAME=left X=90 F=1500
+MULTIPROBE_TOWARD_NOERROR PROBE_NAME=right Y=90 F=1500
+MULTIPROBE_AWAY PROBE_NAME=left X=40 F=1500
+MULTIPROBE_AWAY_NOERROR PROBE_NAME=right Y=40 F=1500
+QUERY_PROBE_MUX PROBE_NAME=left
+QUERY_PROBE_MUX PROBE_NAME=right
+
+# Ordinary G38 selects the first configured probe by default.
+G38.2 X80 F1500
+QUERY_PROBE
+
+# Select a probe for the ordinary G38 commands.
+SET_PROBE_G38 PROBE_NAME=right
+G38.2 X120 F1500
+QUERY_PROBE
+G1 X20 Y20 Z20 F3000

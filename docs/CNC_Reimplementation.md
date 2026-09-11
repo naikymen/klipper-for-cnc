@@ -118,7 +118,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F1 | Declarative ABC axes and partial axis sets | done | `cartesian_abc.py`, `corexy_abc.py`, `toolhead.py` | F0 plus `generic_cartesian.py` | XYZA and XYZABC configs; mixed and extra-only moves |
 | F2 | ABC homing, state, limits, and position reporting | done | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
 | F3 | Directional G38 single probe | done | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
-| F4 | Multiple named directional probes | audit | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
+| F4 | Multiple named directional probes | done | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
 | F5 | Home-able extruder steppers | audit | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
 | F6 | Extruder coordinate and limit semantics | audit | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
 | F7 | Mixed-axis G2/G3 arcs | audit | `gcode_arcs.py` | Current dynamic G-Code axis map | Endpoint, segmentation, feedrate, acceleration, absolute/relative mode tests |
@@ -182,7 +182,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 
 | Feature | Legacy evidence | Strategy | Core edit? |
 | --- | --- | --- | --- |
-| F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extra over `HomingMove` (imported directly) with a local axes-filtered no-movement check; register `G38.2`–`G38.5` handlers | no |
+| F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extras over `HomingMove` (imported directly) with a local axes-filtered no-movement check; F4 adds named mux commands and active-probe dispatch | no |
 | F5 | `extruder_home.py`, `extruder.py` | New extra over `manual_stepper`/`homing` homing primitives | no |
 | F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Wrap `RESTORE_GCODE_STATE` and saved-state logic via `register_command(..., None)` | no (see note) |
 | F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
@@ -284,6 +284,8 @@ at a time.
 | 2026-09-10 | F3 is a pure extra that imports `HomingMove` directly instead of `homing.probing_move` | `probing_move` hardcodes `probe_pos=True` and cannot forward `triggered`/`check_triggered`, and its `check_no_movement` has no axis filter; importing `HomingMove` and doing a local axes-filtered no-movement check avoids a core edit |
 | 2026-09-10 | F3 maps G38.2/3/4/5 to `homing_move(triggered=, check_triggered=)` | `triggered`=trigger-invert, `check_triggered`=error-out; current `home_wait` returns `0.0` for a clean no-trigger so `check_triggered=False` reports "ended without trigger" without the legacy timeout-string mapping |
 | 2026-09-10 | F3 scope is XYZ-only; E probing and named probes deferred | Matches `develop`'s working G38 (it left a "TODO: update G38 to work with ABC axis"); extruder probing belongs to F5/F6 and named probes to F4 |
+| 2026-09-10 | F4 uses `[probe_G38_multi <name>]` with muxed named commands | `MULTIPROBE_TOWARD`, `MULTIPROBE_TOWARD_NOERROR`, `MULTIPROBE_AWAY`, and `MULTIPROBE_AWAY_NOERROR` carry `PROBE_NAME=...`; numeric legacy names are not parseable by current G-Code command parsing |
+| 2026-09-10 | F4 regular `G38.*` commands select by active extruder name, then explicit `SET_PROBE_G38`, then first configured probe | This keeps F4 independent of F5 while allowing extruder/probe naming to become automatic when home-able extruders are implemented |
 
 ## Per-slice handoff template
 
