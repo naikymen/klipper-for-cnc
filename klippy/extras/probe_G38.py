@@ -117,7 +117,8 @@ class ProbeG38:
                     "Probing failed due to printer shutdown")
             raise
         if self._check_no_movement(hmove, probe_axes) is not None:
-            raise self.printer.command_error("Probe triggered prior to movement")
+            raise self.printer.command_error(
+                "Probe triggered prior to movement")
         # Report the trigger position.
         haltpos = self.toolhead.get_position()
         status = "probe trigger"
@@ -136,7 +137,8 @@ class ProbeG38:
     def cmd_G38_3(self, gcmd):
         self._probe(gcmd, error_out=False, trigger_invert=True)
 
-    cmd_G38_4_help = "Probe away from workpiece, stop on loss of contact, error on failure"
+    cmd_G38_4_help = ("Probe away from workpiece, stop on loss of contact,"
+                      " error on failure")
     def cmd_G38_4(self, gcmd):
         self._probe(gcmd, error_out=True, trigger_invert=False)
 
