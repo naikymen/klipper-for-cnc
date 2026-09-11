@@ -1,0 +1,16 @@
+# F7 test: an arc that names a homeable extra axis must move that axis.
+#
+# Home only XYZ, so the endpoint-equipped B axis stays un-homed.  The arc
+# below carries a B word, which means the extra axis takes part in the move
+# and must therefore be rejected until it is homed.  If G2/G3 silently
+# dropped extra-axis words, this arc would succeed and the test would fail.
+DICTIONARY atmega2560.dict
+CONFIG gcode_arcs_abc.cfg
+SHOULD_FAIL
+
+# Home XYZ only (bare G28 would also home B).
+G28 X Y Z
+G1 X20 Y20 Z20 F3000
+
+# B is un-homed, so this arc must fail with "Must home axis B first".
+G2 X125 Y32 Z20 B10 I10.5 J10.5 F3000

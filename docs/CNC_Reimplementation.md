@@ -121,7 +121,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F4 | Multiple named directional probes | done | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
 | F5 | Home-able extruder steppers | automated | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
 | F6 | Extruder coordinate and limit semantics | automated | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
-| F7 | Mixed-axis G2/G3 arcs | audit | `gcode_arcs.py` | Current dynamic G-Code axis map | Endpoint, segmentation, feedrate, acceleration, absolute/relative mode tests |
+| F7 | Mixed-axis G2/G3 arcs | automated | `gcode_arcs.py` | Current dynamic G-Code axis map | Extra axes travel alongside the arc in all three planes and land exactly on the target; an un-homed extra axis is rejected; upstream `gcode_arcs.test` unchanged and passing |
 | F8 | Heater PID sampling/regression | audit | `heaters.py`, README PID section | Current heater control classes | Noisy-signal unit tests, compatibility defaults, documented tuning |
 | F9 | CNC configuration and migration docs | audit | CNC shield config and fork README | Current config conventions | Tested example, config reference, G-Code docs, migration guide |
 
@@ -185,7 +185,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 | F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extras over `HomingMove` (imported directly) with a local axes-filtered no-movement check; F4 adds named mux commands and active-probe dispatch | no |
 | F5 | `extruder_home.py`, `extruder.py` | Rail-backed `ExtruderStepper` plus an `ExtruderHoming` toolhead adapter over the `manual_stepper`/`homing` homing primitives, folded into `kinematics/extruder.py` | no |
 | F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Two new `[printer]` booleans gating existing rebases in `gcode_move.py`, one new `[extruder]` boolean in `kinematics/extruder.py`, plus an extruder branch in `force_move.py`'s `SET_KINEMATIC_POSITION` | no (existing extras and kinematics only) |
-| F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
+| F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra; interpolate every registered extra axis linearly alongside the arc and snap the last segment to the exact commanded target | no (extra file) |
 | F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); re-derive numpy-free | no (extra file) |
 | S1 | `manual_spinner.py` | Existing manual-stepper APIs | no |
 | S3 | `skew_correction.py` `SET_SKEW_FACTORS` | Already an extra, self-contained | no (extra file) |
@@ -221,7 +221,8 @@ than silently rewriting dependencies.
 - Are A/B/C linear distances, rotary angles, or opaque axis units? Can each axis
   declare its own unit in status and documentation?
 - Does `F` describe XYZ path speed, full N-dimensional path speed, or move time
-  when XYZ and ABC move together?
+  when XYZ and ABC move together? **Settled for arcs (F7):** the XYZ path rate,
+  with ABC slaved to start and stop with XYZ (NIST RS274/NGC §2.1.2.5).
 - How should an ABC-only move derive duration and acceleration?
 - Are additional axes acceleration-limited by default? How are impossible
   machine settings rejected?
@@ -350,6 +351,11 @@ needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
 | 2026-09-11 | F6 extends `SET_KINEMATIC_POSITION` to `E` only, not to the ABC axes | `G92` and `SET_GCODE_OFFSET` remain `XYZE`-only, so adding ABC here would make the three commands inconsistent; ABC axes can already be un-homed and re-homed with `G28 <axis>` (F2). The extruder is the one axis where upstream provides no homing path |
 | 2026-09-11 | F6 edits `force_move.py`'s `cmd_SET_KINEMATIC_POSITION` in place rather than wrapping the command | The command is owned by an extra and its XYZ path is unchanged, so a wrapper would duplicate the axis parsing for no isolation benefit; the `[force_move] enable_force_move` gate is preserved, so the command still does not exist unless the user asks for it |
 | 2026-09-11 | F6 reuses `homeable_extruder.cfg` for the stock-semantics `SHOULD_FAIL` fixtures | The stock behavior *is* the default configuration, so a second near-identical config would only add drift; `extruder_coordinates.cfg` carries the opt-in options and all fork-semantics fixtures. `test_klippy.py` needs one file per expected failure because a file aborts at its first failing case, and a single file cannot hold several inline-GCode `CONFIG` blocks (the shared `GCODE`-file form is the only supported multi-case shape) |
+| 2026-09-11 | F7 slaves every registered extra axis to the arc, interpolating it linearly and snapping the final segment to the exact commanded target | Mirrors how the helical axis and the extruder already behave, so an arc is just a segmented move with the extra axes interpolated alongside it; the snap removes the accumulated float error `develop` leaves at the arc end |
+| 2026-09-11 | F7 keeps `F` as the XYZ path rate and does **not** port `develop`'s extra-axis `feedrate_factor` | NIST RS274/NGC §2.1.2.5: while XYZ move, `F` is the XYZ cartesian rate and ABC only have to start and stop with them. `develop` needs its factor because its `toolhead.Move.move_d` sums `axes_d[:-1]` (XYZABC); our `move_d` sums `axes_d[:3]` (XYZ only) and bounds each extra axis independently in `manual_stepper.check_move`, so the factor would make arcs about 3x too fast here. Inverse-time feed (`G93`) is the standard way to make `F` govern a whole move |
+| 2026-09-11 | F7 fixes `develop`'s extra-axis endpoint bug instead of reproducing it | `develop` advances each axis by `target / segments` from the current position, which lands on `currentPos + target` whenever the arc starts away from zero. The port interpolates `(target - currentPos)` and keeps the final-segment snap |
+| 2026-09-11 | F7 does not port `develop`'s `cmd_G2/G3/G17/G18/G19_help` attributes or its per-segment `/tmp/gcode.log` logging | The help strings are inert on `develop` (its `register_command` calls pass no `desc=`, and `gcode.py` only records a description supplied at registration), so porting them would add dead code; surfacing command help is S5. The file logging is a debugging artifact |
+| 2026-09-11 | F7 adds `gcode_arcs_abc.cfg`, `gcode_arcs_abc.test` and `gcode_arcs_abc_unhomed.test`, and leaves upstream's `gcode_arcs.cfg`/`.test` byte-identical | `test_klippy.py` only inspects exit status, so the `SHOULD_FAIL` fixture leaves the endstop-equipped B axis un-homed: an arc carrying `B` must be rejected, and it is that fixture (not the positive one) which discriminates — verified by running it against `master`'s `gcode_arcs.py`, where it fails with "Test failed to raise an error". The positive fixture instead uses a tight `position_max: 60` on axis A so that a wrong endpoint becomes a hard "Move out of range"; re-introducing `develop`'s endpoint arithmetic makes it fail, which is the regression guard |
 
 ## Per-slice handoff template
 

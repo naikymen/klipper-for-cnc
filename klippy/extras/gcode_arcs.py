@@ -11,6 +11,7 @@ import math
 # Coordinates created by this are converted into G1 commands.
 #
 # supports XY, XZ & YZ planes with remaining axis as helical
+# extra axes (A/B/C/...) travel linearly alongside the arc
 
 # Enum
 ARC_PLANE_X_Y = 0
@@ -64,10 +65,16 @@ class ArcSupport:
         currentPos = gcodestatus['gcode_position']
         absolut_extrude = gcodestatus['absolute_extrude']
 
-        # Parse parameters
-        asTarget = [gcmd.get_float("X", currentPos[0]),
-                    gcmd.get_float("Y", currentPos[1]),
-                    gcmd.get_float("Z", currentPos[2])]
+        # Parse parameters. The target holds every axis, so that planArc()
+        # can move the whole machine to the exact commanded position on the
+        # final segment.
+        asTarget = list(currentPos)
+        asTarget[X_AXIS] = gcmd.get_float("X", currentPos[X_AXIS])
+        asTarget[Y_AXIS] = gcmd.get_float("Y", currentPos[Y_AXIS])
+        asTarget[Z_AXIS] = gcmd.get_float("Z", currentPos[Z_AXIS])
+        for axis, index in self.gcode_move.axis_map.items():
+            if axis not in "XYZE":
+                asTarget[index] = gcmd.get_float(axis, currentPos[index])
 
         if gcmd.get_float("R", None) is not None:
             raise gcmd.error("G2/G3 does not support R moves")
@@ -143,6 +150,15 @@ class ArcSupport:
         theta_per_segment = angular_travel / segments
         linear_per_segment = linear_travel / segments
 
+        # Extra axes (A/B/C/...) are slaved to the XYZ motion: they travel
+        # linearly along the arc, just as the extruder and the helical axis
+        # do. They do not contribute to the arc's length, so the feedrate
+        # remains the XYZ path rate (as in RS274/NGC).
+        extra_axes = {index: axis
+                      for axis, index in self.gcode_move.axis_map.items()
+                      if axis not in "XYZE"
+                      and targetPos[index] != currentPos[index]}
+
         asE = gcmd.get_float("E", None)
         asF = gcmd.get_float("F", None)
 
@@ -160,16 +176,20 @@ class ArcSupport:
             r_P = -offset[0] * cos_Ti + offset[1] * sin_Ti
             r_Q = -offset[0] * sin_Ti - offset[1] * cos_Ti
 
-            c = [None, None, None]
+            c = [None] * len(targetPos)
             c[alpha_axis] = center_P + r_P
             c[beta_axis] = center_Q + r_Q
             c[helical_axis] = currentPos[helical_axis] + dist_Helical
-
+            for index in extra_axes:
+                axis_d = targetPos[index] - currentPos[index]
+                c[index] = currentPos[index] + axis_d * i / segments
 
             if i == segments:
                 c = targetPos
             # Convert coords into G1 commands
             g1_params = {'X': c[0], 'Y': c[1], 'Z': c[2]}
+            for index, axis in extra_axes.items():
+                g1_params[axis] = c[index]
             if e_per_move:
                 g1_params['E'] = e_base + e_per_move
                 if absolut_extrude:

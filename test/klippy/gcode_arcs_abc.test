@@ -1,0 +1,65 @@
+# F7 test: G2/G3 arcs carrying extra (ABC) axes.
+#
+# The extra axes travel linearly alongside the arc and land exactly on the
+# commanded values, in every arc plane. The feedrate is the XYZ path rate
+# (RS274/NGC): ABC do not contribute to the arc length, they only have to
+# start and stop together with the XYZ motion.
+#
+# See gcode_arcs.test for the upstream (XYZ + E only) coverage, and
+# gcode_arcs_abc_unhomed.test for the proof that an arc really moves the
+# extra axis it names.
+DICTIONARY atmega2560.dict
+CONFIG gcode_arcs_abc.cfg
+
+# Homes XYZ plus the homeable B axis; A and C have no endstop.
+G28
+G90
+
+# --- XY plane (G17), two extra axes from a non-zero start -----------------
+# A starts at 40 and is commanded to 50.  a_stepper tops out at 60, so an
+# endpoint computed from the absolute target (40 + 50) instead of the delta
+# would land out of range here.
+G1 X20 Y20 Z20 A40 C10 F3000
+G2 X125 Y32 Z20 A50 C20 I10.5 J10.5
+
+# Same move in the other direction, with B travelling back down.
+G1 X20 Y20 Z20 B30 F3000
+G3 X125 Y32 Z20 B10 I10.5 J10.5
+
+# Extra axes interpolated across many segments stay within bounds.
+G1 X20 Y20 Z20 A60 B50 C100 F3000
+G2 X125 Y32 Z20 A0 B-5 C0 I10.5 J10.5
+
+# --- XZ plane (G18) ------------------------------------------------------
+G18
+G1 X20 Y20 Z20 A10 F3000
+G2 X125 Y20 Z32 A20 I10.5 K10.5
+
+# --- YZ plane (G19) ------------------------------------------------------
+G19
+G1 X20 Y20 Z20 B20 C10 F3000
+G2 X20 Y125 Z32 B30 C30 J10.5 K10.5
+G17
+
+# --- Helical arc with an extra axis --------------------------------------
+G1 X20 Y20 Z20 A10 F3000
+G2 X125 Y32 Z30 A20 I10.5 J10.5
+
+# --- Extra axis omitted, or commanded to its current position ------------
+# Both leave the axis untouched (a zero-length extra-axis move is dropped).
+G1 X20 Y20 Z20 A20 F3000
+G2 X125 Y32 Z20 I10.5 J10.5
+G2 X20 Y20 Z20 A20 I10.5 J10.5
+
+# --- An arc with extrude plus an extra axis ------------------------------
+G1 X20 Y20 Z20 E0 F3000
+G2 X125 Y32 Z20 E1 A30 I10.5 J10.5
+
+# --- Letters that are not registered axes are ignored, as in G1 ----------
+G2 X20 Y20 Z20 D5 I10.5 J10.5 F3000
+
+# Final positions, including the extra axes.
+GET_POSITION
+M114
+
+M84
