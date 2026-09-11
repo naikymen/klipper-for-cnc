@@ -122,7 +122,11 @@ class ForceMove:
         x = gcmd.get_float('X', curpos[0])
         y = gcmd.get_float('Y', curpos[1])
         z = gcmd.get_float('Z', curpos[2])
-        set_homed = gcmd.get('SET_HOMED', 'xyz').lower()
+        set_homed_param = gcmd.get('SET_HOMED', None)
+        if set_homed_param is None:
+            set_homed = 'xyz'
+        else:
+            set_homed = set_homed_param.lower()
         set_homed_axes = "".join([a for a in "xyz" if a in set_homed])
         if gcmd.get('CLEAR_HOMED', None) is None:
             # "CLEAR" is an alias for "CLEAR_HOMED"; should deprecate
@@ -135,6 +139,21 @@ class ForceMove:
                      x, y, z, set_homed_axes, clear_homed_axes)
         toolhead.set_position([x, y, z], homing_axes=set_homed_axes)
         toolhead.get_kinematics().clear_homing_state(clear_homed_axes)
+        # An extruder axis may not have an endstop to be homed against, so
+        # allow resetting its coordinate here too. An explicit "E=" value
+        # marks the axis homed, unless SET_HOMED says otherwise or
+        # CLEAR_HOMED asks for the opposite.
+        e_pos = gcmd.get_float('E', None)
+        if e_pos is not None:
+            extruder = toolhead.get_extruder()
+            set_extruder_position = getattr(extruder, 'set_position', None)
+            if set_extruder_position is not None:
+                set_homed_e = set_homed_param is None or 'e' in set_homed
+                if 'e' in clear_homed:
+                    set_homed_e = False
+                set_extruder_position(e_pos, "e" if set_homed_e else "")
+                if not set_homed_e:
+                    extruder.clear_homing_state("e")
 
 def load_config(config):
     return ForceMove(config)

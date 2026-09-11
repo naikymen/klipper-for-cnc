@@ -1,0 +1,18 @@
+# F6 test: the stock tool change E reset is the default.
+#
+# With [printer] tool_change_e_reset left at its default of True,
+# ACTIVATE_EXTRUDER re-bases the extruder coordinate on the newly selected
+# extruder (a hidden G92 E0), so an absolute E move after the tool change is
+# offset by the previous base position and runs past position_max.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+G28
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G28
+ACTIVATE_EXTRUDER EXTRUDER=extruder
+G1 E20 F600
+G92 E30
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G1 E60 F600

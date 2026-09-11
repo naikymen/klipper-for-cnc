@@ -1,0 +1,16 @@
+# F6 test: the stock relative E restore is the default.
+#
+# With [printer] relative_e_restore left at its default of True,
+# RESTORE_GCODE_STATE re-bases the extruder coordinate on the value it had
+# when the state was saved, so the next absolute E move is offset by the
+# extrusion performed in between and runs past position_max.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+G28
+G92 E0
+SAVE_GCODE_STATE NAME=x
+G1 E40 F600
+RESTORE_GCODE_STATE NAME=x
+G1 E45 F600

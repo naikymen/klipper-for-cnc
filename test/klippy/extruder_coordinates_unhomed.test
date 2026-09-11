@@ -1,0 +1,13 @@
+# F6 test: SET_KINEMATIC_POSITION E= does not force the extruder to be homed.
+#
+# SET_HOMED and CLEAR_HOMED take precedence over the explicit E value, so
+# the extruder coordinate is set but the axis stays un-homed and the
+# following E move must raise "Must home extruder axis first".
+DICTIONARY atmega2560.dict
+CONFIG extruder_coordinates.cfg
+SHOULD_FAIL
+
+M84
+SET_KINEMATIC_POSITION X=0 Y=0 Z=0 E=10 SET_HOMED=xyz
+GET_POSITION
+G1 E20 F600

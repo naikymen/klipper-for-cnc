@@ -1,0 +1,59 @@
+# F6 test: extruder coordinate and limit semantics (opt-in behavior).
+#
+# Uses the extruder_coordinates.cfg machine, which sets
+# relative_e_restore/tool_change_e_reset to False and enables
+# symmetric_speed_limits, so that:
+#   - SET_KINEMATIC_POSITION E= re-homes and re-zeroes the extruder axis
+#     (this part is not gated on any option),
+#   - an extrude move combined with an XY move is not rejected by the
+#     extrusion cross section limits,
+#   - the extruder coordinate survives RESTORE_GCODE_STATE and
+#     ACTIVATE_EXTRUDER as an absolute value.
+DICTIONARY atmega2560.dict
+CONFIG extruder_coordinates.cfg
+
+# M84 clears the extruder homing state, so an E move is rejected until the
+# coordinate is re-established with SET_KINEMATIC_POSITION E=.
+M84
+SET_KINEMATIC_POSITION X=0 Y=0 Z=0 E=10
+GET_POSITION
+G1 E20 F600
+GET_POSITION
+
+# An explicit SET_HOMED that names the extruder axis marks it homed too.
+M84
+SET_KINEMATIC_POSITION X=0 Y=0 Z=0 E=15 SET_HOMED=xyze
+GET_POSITION
+G1 E20 F600
+
+# Symmetric limits: an XYZ+E move is treated like an E-only move, so it is
+# only subject to the extruder only velocity/accel limits (see the
+# _default_symmetric test for the stock behavior).
+G28
+G1 X0.1 Y0.1 E50 F600
+GET_POSITION
+
+# The extruder coordinate is not re-based on RESTORE_GCODE_STATE, so the
+# E coordinate keeps tracking the physical position (see the
+# _default_relative_e test for the stock behavior).
+G28
+G92 E0
+SAVE_GCODE_STATE NAME=x
+G1 E40 F600
+RESTORE_GCODE_STATE NAME=x
+GET_POSITION
+G1 E45 F600
+GET_POSITION
+
+# The extruder coordinate is not re-based on ACTIVATE_EXTRUDER, so absolute
+# E moves stay absolute across a tool change (see the _default_tool_change
+# test for the stock behavior).
+G28
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G28
+ACTIVATE_EXTRUDER EXTRUDER=extruder
+G1 E20 F600
+G92 E30
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G1 E60 F600
+GET_POSITION

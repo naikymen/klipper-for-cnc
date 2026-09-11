@@ -203,6 +203,9 @@ class PrinterExtruder:
             'max_extrude_only_distance', 50., minval=0.)
         self.instant_corner_v = config.getfloat(
             'instantaneous_corner_velocity', 1., minval=0.)
+        # Apply the extruder-only (or retraction) speed and acceleration
+        # limits to every move instead of just E-only and retraction moves.
+        self.symmetric = config.getboolean('symmetric_speed_limits', False)
         # Setup extruder trapq (trapezoidal motion queue)
         self.motion_queuing = self.printer.load_object(config, 'motion_queuing')
         self.trapq = self.motion_queuing.allocate_trapq()
@@ -287,8 +290,10 @@ class PrinterExtruder:
                 "See the 'min_extrude_temp' config option for details")
         axis_r = move.axes_r[ea_index]
         axis_d = move.axes_d[ea_index]
-        if (not move.axes_d[0] and not move.axes_d[1]) or axis_r < 0.:
-            # Extrude only move (or retraction move) - limit accel and velocity
+        if (not move.axes_d[0] and not move.axes_d[1]) or axis_r < 0. \
+                or self.symmetric:
+            # Extrude only move, retraction move, or symmetric limits - limit
+            # accel and velocity
             if abs(axis_d) > self.max_e_dist:
                 raise self.printer.command_error(
                     "Extrude only move too long (%.3fmm vs %.3fmm)\n"

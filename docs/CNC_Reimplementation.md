@@ -120,7 +120,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F3 | Directional G38 single probe | done | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
 | F4 | Multiple named directional probes | done | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
 | F5 | Home-able extruder steppers | automated | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
-| F6 | Extruder coordinate and limit semantics | audit | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
+| F6 | Extruder coordinate and limit semantics | automated | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
 | F7 | Mixed-axis G2/G3 arcs | audit | `gcode_arcs.py` | Current dynamic G-Code axis map | Endpoint, segmentation, feedrate, acceleration, absolute/relative mode tests |
 | F8 | Heater PID sampling/regression | audit | `heaters.py`, README PID section | Current heater control classes | Noisy-signal unit tests, compatibility defaults, documented tuning |
 | F9 | CNC configuration and migration docs | audit | CNC shield config and fork README | Current config conventions | Tested example, config reference, G-Code docs, migration guide |
@@ -184,7 +184,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 | --- | --- | --- | --- |
 | F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extras over `HomingMove` (imported directly) with a local axes-filtered no-movement check; F4 adds named mux commands and active-probe dispatch | no |
 | F5 | `extruder_home.py`, `extruder.py` | Rail-backed `ExtruderStepper` plus an `ExtruderHoming` toolhead adapter over the `manual_stepper`/`homing` homing primitives, folded into `kinematics/extruder.py` | no |
-| F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Wrap `RESTORE_GCODE_STATE` and saved-state logic via `register_command(..., None)` | no (see note) |
+| F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Two new `[printer]` booleans gating existing rebases in `gcode_move.py`, one new `[extruder]` boolean in `kinematics/extruder.py`, plus an extruder branch in `force_move.py`'s `SET_KINEMATIC_POSITION` | no (existing extras and kinematics only) |
 | F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
 | F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); re-derive numpy-free | no (extra file) |
 | S1 | `manual_spinner.py` | Existing manual-stepper APIs | no |
@@ -194,9 +194,11 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 | `M211` | `toolhead.py`, kinematics | Flag + accessor consulted in the `check_move` sites | **yes (minimal, landed with F2)** |
 | `cartesian_abc.py` / `corexy_abc.py`, multi-toolhead experiments | — | Superseded by `generic_cartesian` + `extra_axes` | n/a (do not port) |
 
-Notes: F6's tool-change absolute-E behavior may need a small `gcode_move.py`
-touch if wrapping `RESTORE_GCODE_STATE` proves insufficient; decide during the
-F6 slice and record it. S2 (`pipettin.py`), S4 (`QUERY_HX71`), S7 (AVR fixes),
+Notes: F6 needed no wrapping after all — the three behaviors that change an
+existing computation live in files that are already extras or kinematics
+(`gcode_move.py` and `kinematics/extruder.py`), so the rebases and the
+extrusion-limit branch were gated directly there and no command is
+re-registered. S2 (`pipettin.py`), S4 (`QUERY_HX71`), S7 (AVR fixes),
 and S8 (branding/docs) are covered by their existing defer/audit dispositions
 and are omitted from this table.
 
@@ -342,6 +344,12 @@ needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
 | 2026-09-11 | Deviation from `develop`: `G28 E` on a non-homeable extruder raises `No endstop for extruder '<name>'` | Current master's `cmd_G28` routes an explicit axis letter straight to the extra axis's `home()`, while `develop` silently ignored `E` and homed XYZ; the explicit error is clearer and keeps master's semantics |
 | 2026-09-11 | Deviation from `develop`: "Must home extruder axis first" is not gated by `M211` | Matches the house style for extra axes (`ManualStepper.check_move`, `CartKinematics._check_endstops`); `M211` still gates the out-of-bounds check |
 | 2026-09-11 | Cache the MCU data dictionaries at `ci_build/dict/` (git-ignored), alongside the pristine `data-dict.zip` CI artifact | Dictionaries are binary build outputs and stay out of Git, but this machine has no `avr-gcc`, so a cached copy is required to run any regression test; `ci_build/dict` is the exact path `scripts/ci-build.sh` populates, so a toolchain-enabled refresh is a no-op copy. See "Local MCU data dictionaries" |
+| 2026-09-11 | F6 keeps every changed behavior opt-in: the new `relative_e_restore` and `tool_change_e_reset` `[printer]` options default to **True** and `symmetric_speed_limits` defaults to **False**, so a machine that does not set them behaves exactly like upstream | `develop` hardcodes the tool-change change by deleting the rebase line, which would silently alter every existing printer's G-Code; the compatibility target requires "unchanged behavior when the new feature is absent", so the removal becomes an opt-out instead. `relative_e_restore` keeps `develop`'s name, section, and default |
+| 2026-09-11 | F6 reads both new `[printer]` options via `config.getsection('printer')` inside `GCodeMove.__init__` | `gcode_move` is constructed with its own `[gcode_move]` section, and `printer` is an extra section that may be absent; `getboolean` on the `printer` wrapper still applies the default in that case |
+| 2026-09-11 | F6 `SET_KINEMATIC_POSITION E=` marks the extruder axis homed when the value is given explicitly | An extruder may have no endstop to home against, so this is the only way to leave the un-homed state after `M84`; `SET_HOMED`/`CLEAR_HOMED` still win when they name (or omit) `e`, and `CLEAR`/`CLEAR_HOMED` take precedence over the explicit value, matching upstream's ordering |
+| 2026-09-11 | F6 extends `SET_KINEMATIC_POSITION` to `E` only, not to the ABC axes | `G92` and `SET_GCODE_OFFSET` remain `XYZE`-only, so adding ABC here would make the three commands inconsistent; ABC axes can already be un-homed and re-homed with `G28 <axis>` (F2). The extruder is the one axis where upstream provides no homing path |
+| 2026-09-11 | F6 edits `force_move.py`'s `cmd_SET_KINEMATIC_POSITION` in place rather than wrapping the command | The command is owned by an extra and its XYZ path is unchanged, so a wrapper would duplicate the axis parsing for no isolation benefit; the `[force_move] enable_force_move` gate is preserved, so the command still does not exist unless the user asks for it |
+| 2026-09-11 | F6 reuses `homeable_extruder.cfg` for the stock-semantics `SHOULD_FAIL` fixtures | The stock behavior *is* the default configuration, so a second near-identical config would only add drift; `extruder_coordinates.cfg` carries the opt-in options and all fork-semantics fixtures. `test_klippy.py` needs one file per expected failure because a file aborts at its first failing case, and a single file cannot hold several inline-GCode `CONFIG` blocks (the shared `GCODE`-file form is the only supported multi-case shape) |
 
 ## Per-slice handoff template
 

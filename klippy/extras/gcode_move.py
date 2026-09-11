@@ -9,6 +9,14 @@ class GCodeMove:
     def __init__(self, config):
         self.printer = printer = config.get_printer()
         self.is_printer_ready = False
+        # Extruder coordinate semantics; the defaults keep the stock
+        # 3D-printer behavior and the alternatives suit machines that home
+        # and soft-limit the extruder as a regular axis.
+        main_config = config.getsection('printer')
+        self.relative_e_restore = main_config.getboolean(
+            'relative_e_restore', True)
+        self.tool_change_e_reset = main_config.getboolean(
+            'tool_change_e_reset', True)
         # Register g-code commands
         gcode = printer.lookup_object('gcode')
         handlers = [
@@ -75,7 +83,11 @@ class GCodeMove:
     def _handle_activate_extruder(self):
         self.reset_last_position()
         self.extrude_factor = 1.
-        self.base_position[3] = self.last_position[3]
+        if self.tool_change_e_reset:
+            # Re-base the extruder coordinate on the newly active extruder
+            # (a hidden G92 E0), which is what slicers expect from a tool
+            # change. Disable it to keep E absolute across tool changes.
+            self.base_position[3] = self.last_position[3]
     def _handle_home_rails_end(self, homing_state, rails):
         self.reset_last_position()
         for axis in homing_state.get_axes():
@@ -257,8 +269,12 @@ class GCodeMove:
         self.speed_factor = state['speed_factor']
         self.extrude_factor = state['extrude_factor']
         # Restore the relative E position
-        e_diff = self.last_position[3] - state['last_position'][3]
-        self.base_position[3] += e_diff
+        if self.relative_e_restore:
+            # Re-base the extruder coordinate on the value it had at save
+            # time, hiding any extrusion that happened in between. Disable it
+            # to keep the extruder coordinate tracking the actual position.
+            e_diff = self.last_position[3] - state['last_position'][3]
+            self.base_position[3] += e_diff
         # Move the toolhead back if requested
         if gcmd.get_int('MOVE', 0):
             speed = gcmd.get_float('MOVE_SPEED', self.speed, above=0.)

@@ -1,0 +1,11 @@
+# F6 test: the stock asymmetric extrusion limits are the default.
+#
+# Without [extruder] symmetric_speed_limits the extruder-only limits only
+# apply to E-only and retraction moves, so combining a large E move with a
+# small XY move is rejected by the extrusion cross section check.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+G28
+G1 X0.1 Y0.1 E50 F600
