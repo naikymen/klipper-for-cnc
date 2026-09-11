@@ -1,0 +1,7 @@
+# An explicit "G28 E" on an extruder without an endstop must fail cleanly
+# instead of silently homing some other axis set.
+DICTIONARY atmega2560.dict
+CONFIG extruders.cfg
+SHOULD_FAIL
+
+G28 E

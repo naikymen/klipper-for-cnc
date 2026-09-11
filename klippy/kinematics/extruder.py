@@ -5,6 +5,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import math, logging
 import stepper, chelper
+from extras import homing, force_move
 
 class ExtruderStepper:
     def __init__(self, config):
@@ -14,8 +15,18 @@ class ExtruderStepper:
         self.config_pa = config.getfloat('pressure_advance', 0., minval=0.)
         self.config_smooth_time = config.getfloat(
                 'pressure_advance_smooth_time', 0.040, above=0., maxval=.200)
-        # Setup stepper
-        self.stepper = stepper.PrinterStepper(config)
+        # Setup stepper. When an endstop is configured the stepper is built
+        # from a rail so that it can be homed (see ExtruderHoming below).
+        self.can_home = config.get('endstop_pin', None) is not None
+        if self.can_home:
+            self.rail = stepper.LookupRail(config)
+            self.steppers = self.rail.get_steppers()
+        else:
+            self.rail = stepper.PrinterStepper(config)
+            self.steppers = [self.rail]
+        self.stepper = self.steppers[0]
+        # Track homing limits as (min, max); an inverted range means not homed
+        self.limits = [(1.0, -1.0)]
         ffi_main, ffi_lib = chelper.get_ffi()
         self.sk_extruder = ffi_main.gc(ffi_lib.extruder_stepper_alloc(),
                                        ffi_lib.extruder_stepper_free)
@@ -41,9 +52,32 @@ class ExtruderStepper:
     def _handle_connect(self):
         self._set_pressure_advance(self.config_pa, self.config_smooth_time)
     def get_status(self, eventtime):
+        homed_axes = ""
+        if self.can_home:
+            homed_axes = "".join(a for a, (l, h) in zip("e", self.limits)
+                                 if l <= h)
         return {'pressure_advance': self.pressure_advance,
                 'smooth_time': self.pressure_advance_smooth_time,
-                'motion_queue': self.motion_queue}
+                'motion_queue': self.motion_queue,
+                'homed_axes': homed_axes}
+    def set_position(self, newpos_e, homing_e=False):
+        self.rail.set_position([newpos_e, 0., 0.])
+        if homing_e and self.can_home:
+            self.limits[0] = self.rail.get_range()
+    def clear_homing_state(self, clear_axes):
+        if self.can_home and 'e' in clear_axes.lower():
+            self.limits = [(1.0, -1.0)]
+    def check_move_limits(self, move, ea_index):
+        if not self.can_home:
+            return
+        epos = move.end_pos[ea_index]
+        l, h = self.limits[0]
+        if l <= epos <= h:
+            return
+        if l > h:
+            raise move.move_error("Must home extruder axis first")
+        if move.toolhead.are_limits_enabled():
+            raise move.move_error()
     def find_past_position(self, print_time):
         mcu_pos = self.stepper.get_past_mcu_position(print_time)
         return self.stepper.mcu_to_commanded_position(mcu_pos)
@@ -175,11 +209,16 @@ class PrinterExtruder:
         self.trapq_append = self.motion_queuing.lookup_trapq_append()
         # Setup extruder stepper
         self.extruder_stepper = None
+        self.extruder_homing = None
+        self.can_home = False
         if (config.get('step_pin', None) is not None
             or config.get('dir_pin', None) is not None
             or config.get('rotation_distance', None) is not None):
             self.extruder_stepper = ExtruderStepper(config)
             self.extruder_stepper.stepper.set_trapq(self.trapq)
+            if self.extruder_stepper.can_home:
+                self.extruder_homing = ExtruderHoming(self)
+                self.can_home = True
         # Register commands
         gcode = self.printer.lookup_object('gcode')
         if self.name == 'extruder':
@@ -203,9 +242,45 @@ class PrinterExtruder:
         return self.trapq
     def get_axis_gcode_id(self):
         return 'E'
+    # Homing support (only meaningful when the extruder stepper can home)
+    def home(self, homing_state):
+        if self.extruder_homing is None:
+            raise self.printer.command_error(
+                "No endstop for extruder '%s'" % (self.name,))
+        self.extruder_homing.home(homing_state)
+    def get_steppers(self):
+        if self.extruder_stepper is None:
+            return []
+        return self.extruder_stepper.steppers
+    def calc_position(self, stepper_positions):
+        return [stepper_positions[self.extruder_stepper.rail.get_name()],
+                0., 0.]
+    def get_range(self):
+        return self.extruder_stepper.rail.get_range()
+    def get_homing_info(self):
+        return self.extruder_stepper.rail.get_homing_info()
+    def get_endstops(self):
+        return self.extruder_stepper.rail.get_endstops()
+    def set_position(self, newpos_e, homing_axes="", print_time=None):
+        toolhead = self.printer.lookup_object('toolhead')
+        if print_time is None:
+            toolhead.flush_step_generation()
+            print_time = toolhead.get_last_move_time()
+        ffi_main, ffi_lib = chelper.get_ffi()
+        ffi_lib.trapq_set_position(self.trapq, print_time, newpos_e, 0., 0.)
+        self.last_position = newpos_e
+        if self.extruder_stepper is not None:
+            self.extruder_stepper.set_position(
+                newpos_e, 'e' in homing_axes.lower())
+        toolhead.set_extra_axis_position(self, newpos_e)
+    def clear_homing_state(self, clear_axes):
+        if self.extruder_stepper is not None:
+            self.extruder_stepper.clear_homing_state(clear_axes)
     def stats(self, eventtime):
         return self.heater.stats(eventtime)
     def check_move(self, move, ea_index):
+        if self.extruder_stepper is not None:
+            self.extruder_stepper.check_move_limits(move, ea_index)
         if not self.heater.can_extrude:
             raise self.printer.command_error(
                 "Extrude below minimum temp\n"
@@ -306,6 +381,149 @@ class DummyExtruder:
         return None
     def get_axis_gcode_id(self):
         return 'E'
+
+# Adapter that drives an extruder's own trapq/timeline during homing, so that
+# HomingMove can home the extruder against its endstop without disturbing the
+# active toolhead's XYZ motion queue.
+class ExtruderHoming:
+    def __init__(self, extruder):
+        self.printer = extruder.printer
+        self.extruder = extruder
+        toolhead = self.printer.lookup_object('toolhead')
+        max_velocity, max_accel = toolhead.get_max_velocity()
+        self.homing_accel = max_accel
+        # Register commands
+        gcode = self.printer.lookup_object('gcode')
+        gcode.register_mux_command("HOME_EXTRUDER", "EXTRUDER",
+                                   extruder.name, self.cmd_HOME_EXTRUDER,
+                                   desc=self.cmd_HOME_EXTRUDER_help)
+        if "HOME_ACTIVE_EXTRUDER" not in gcode.ready_gcode_handlers:
+            gcode.register_command("HOME_ACTIVE_EXTRUDER",
+                                   self.cmd_HOME_ACTIVE_EXTRUDER,
+                                   desc=self.cmd_HOME_ACTIVE_EXTRUDER_help)
+    def _submit_move(self, movetime, movepos, speed, accel):
+        extruder = self.extruder
+        cp = extruder.last_position
+        axis_r, accel_t, cruise_t, cruise_v = force_move.calc_move_time(
+            movepos - cp, speed, accel)
+        # Use the extruder trapq convention: direction is encoded in the
+        # signed velocity/accel, with axes_r_x fixed at 1.0. Each homing
+        # move starts from rest, so start_v is zero.
+        extruder.trapq_append(extruder.trapq, movetime,
+                              accel_t, cruise_t, accel_t,
+                              cp, 0., 0.,
+                              1., 0., 0.,
+                              0., cruise_v * axis_r, accel * axis_r)
+        extruder.last_position = movepos
+        return movetime + accel_t + cruise_t + accel_t
+    def do_move(self, movepos, speed, accel):
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.flush_step_generation()
+        start_time = toolhead.get_last_move_time()
+        end_time = self._submit_move(start_time, movepos, speed, accel)
+        self.extruder.motion_queuing.note_mcu_movequeue_activity(end_time)
+        toolhead.dwell(end_time - start_time)
+    def do_set_position(self, setpos):
+        self.extruder.set_position(setpos)
+    def _do_homing_move(self, endstops, homepos, speed):
+        hmove = homing.HomingMove(self.printer, endstops, self)
+        hmove.homing_move([homepos, 0., 0., 0.], speed)
+        return hmove
+    def _retract_move(self, homing_info, forcepos, homepos):
+        axes_d = homepos - forcepos
+        move_d = abs(axes_d)
+        retract_r = min(1., homing_info.retract_dist / move_d)
+        retractpos = homepos - axes_d * retract_r
+        self.do_move(retractpos, homing_info.retract_speed, self.homing_accel)
+        startpos = retractpos - axes_d * retract_r
+        self.do_set_position(startpos)
+        return homepos
+    def home(self, homing_state):
+        extruder = self.extruder
+        rail = extruder.extruder_stepper.rail
+        position_min, position_max = rail.get_range()
+        hi = rail.get_homing_info()
+        homepos = hi.position_endstop
+        if hi.positive_dir:
+            forcepos = homepos - 1.5 * (homepos - position_min)
+        else:
+            forcepos = homepos + 1.5 * (position_max - homepos)
+        # Notify of upcoming homing operation
+        self.printer.send_event("homing:home_rails_begin", homing_state,
+                                [rail])
+        # Set the axis position to the start of the homing sweep
+        self.do_set_position(forcepos)
+        endstops = rail.get_endstops()
+        # Perform first home
+        hmove = self._do_homing_move(endstops, homepos, hi.speed)
+        # Perform second home after retracting
+        if hi.retract_dist:
+            self._retract_move(hi, forcepos, homepos)
+            hmove = self._do_homing_move(endstops, homepos,
+                                         hi.second_homing_speed)
+            if hmove.check_no_movement() is not None:
+                raise self.printer.command_error(
+                    "Endstop %s still triggered after retract"
+                    % (hmove.check_no_movement(),))
+        # Mark the extruder as homed at the final position left by the
+        # homing move (which already accounts for any endstop overshoot)
+        extruder.set_position(extruder.last_position, "e")
+        homing_state.trigger_mcu_pos = {sp.stepper_name: sp.trig_pos
+                                        for sp in hmove.stepper_positions}
+        homing_state.adjust_pos = {}
+        self.printer.send_event("homing:home_rails_end", homing_state,
+                                [rail])
+    cmd_HOME_EXTRUDER_help = "Home the extruder against its endstop"
+    def cmd_HOME_EXTRUDER(self, gcmd):
+        homing_state = homing.Homing(self.printer)
+        # The extruder always occupies toolhead axis 3, whether or not it is
+        # the active extruder (inactive extruders are absent from extra_axes).
+        homing_state.set_axes([3])
+        try:
+            self.home(homing_state)
+        except self.printer.command_error:
+            if self.printer.is_shutdown():
+                raise
+            self.extruder.clear_homing_state("e")
+            raise
+    cmd_HOME_ACTIVE_EXTRUDER_help = ("Home the active extruder against its"
+                                     " endstop")
+    def cmd_HOME_ACTIVE_EXTRUDER(self, gcmd):
+        toolhead = self.printer.lookup_object('toolhead')
+        extruder = toolhead.get_extruder()
+        if (not isinstance(extruder, PrinterExtruder)
+                or extruder.extruder_homing is None):
+            raise gcmd.error("Active extruder cannot be homed")
+        extruder.extruder_homing.cmd_HOME_EXTRUDER(gcmd)
+    # Toolhead wrappers to support HomingMove
+    def flush_step_generation(self):
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.flush_step_generation()
+    def get_position(self):
+        return [self.extruder.last_position, 0., 0., 0.]
+    def set_position(self, newpos, homing_axes=""):
+        self.extruder.set_position(newpos[0], homing_axes)
+    def get_last_move_time(self):
+        toolhead = self.printer.lookup_object('toolhead')
+        return toolhead.get_last_move_time()
+    def dwell(self, delay):
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.dwell(delay)
+    def drip_move(self, newpos, speed, drip_completion):
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.flush_step_generation()
+        start_time = toolhead.get_last_move_time()
+        end_time = self._submit_move(start_time, newpos[0],
+                                     speed, self.homing_accel)
+        self.extruder.motion_queuing.drip_update_time(start_time, end_time,
+                                                      drip_completion)
+        self.extruder.motion_queuing.wipe_trapq(self.extruder.trapq)
+    def get_kinematics(self):
+        return self.extruder
+    def get_steppers(self):
+        return self.extruder.get_steppers()
+    def calc_position(self, stepper_positions):
+        return self.extruder.calc_position(stepper_positions)
 
 def add_printer_objects(config):
     printer = config.get_printer()

@@ -1,0 +1,52 @@
+# F5 test: home-able extruder steppers.
+#
+# Exercises the extruder homing contract: bare G28 homes XYZ plus the
+# active extruder when it can home, explicit G28 E homes the extruder,
+# HOME_EXTRUDER / HOME_ACTIVE_EXTRUDER home a named / the active
+# extruder, an extruder can home in either direction, and M84 clears
+# the extruder homing state.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+
+# Bare G28 homes XYZ plus the active (homeable) extruder.
+G28
+G1 E5 F600
+
+# Position reporting includes the extruder.
+GET_POSITION
+M114
+
+# Explicit extruder-only homing; position_min allows moving below the endstop.
+G28 E
+G1 E-2 F600
+
+# Activate the second extruder: bare G28 now homes it (positive direction).
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G28
+G1 E45 F600
+M114
+
+# Home the active extruder directly.
+HOME_ACTIVE_EXTRUDER
+G1 E45 F600
+
+# Home the inactive extruder by name.
+HOME_EXTRUDER EXTRUDER=extruder
+ACTIVATE_EXTRUDER EXTRUDER=extruder
+G1 E5 F600
+
+# Rotation distance updates still work on a rail-backed extruder.
+SET_EXTRUDER_ROTATION_DISTANCE EXTRUDER=extruder DISTANCE=33.2
+G1 E7 F600
+
+# M84 clears the extruder homing state.
+M84
+HOME_EXTRUDER EXTRUDER=extruder1
+HOME_ACTIVE_EXTRUDER
+G1 E10 F600
+
+# Soft limits are gated by M211.
+M211 S0
+G1 E100 F600
+M211 S1
+G1 E0 F600

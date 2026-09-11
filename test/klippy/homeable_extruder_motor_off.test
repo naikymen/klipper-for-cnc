@@ -1,0 +1,16 @@
+# F5 test: M84 clears the extruder homing state.
+#
+# After homing, M84 must clear the extruder homing state, so a later E
+# move must raise "Must home extruder axis first" again.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+# Home XYZ and the homeable extruder.
+G28
+
+# Turning the motors off clears the homing state.
+M84
+
+# Extruding after M84 must fail.
+G1 E5 F600

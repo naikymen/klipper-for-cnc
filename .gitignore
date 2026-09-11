@@ -4,3 +4,7 @@ out
 .config
 .config.old
 klippy/.version
+
+# CI build directory, including the locally cached MCU data dictionaries.
+# See docs/CNC_Reimplementation.md ("Local MCU data dictionaries").
+/ci_build/

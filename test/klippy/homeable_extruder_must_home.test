@@ -1,0 +1,13 @@
+# F5 test: moving the extruder before homing must fail.
+#
+# Home only X, leaving the homeable extruder un-homed, so the subsequent
+# E move must raise "Must home extruder axis first".
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+# Home only X (the extruder stays un-homed).
+G28 X
+
+# Extruding before homing must fail.
+G1 E5 F600

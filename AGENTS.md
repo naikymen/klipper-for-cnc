@@ -110,15 +110,17 @@ Useful checks, from cheapest to broadest:
 ```shell
 python3 klippy/klippy.py --import-test
 ./scripts/check_whitespace.sh
-python3 scripts/test_klippy.py -d <dictionary-directory> test/klippy/<test>.test
-python3 scripts/test_klippy.py -d <dictionary-directory> test/klippy/*.test
+python3 scripts/test_klippy.py -d ci_build/dict test/klippy/<test>.test
+python3 scripts/test_klippy.py -d ci_build/dict test/klippy/*.test
 ./scripts/ci-build.sh
 ```
 
 The full CI script expects dependencies and toolchains installed by
-`scripts/ci-install.sh`. Do not install them or download data dictionaries
-without the user's approval. Report exactly which checks ran and which could
-not run.
+`scripts/ci-install.sh`. Do not install them or download new data dictionaries
+without the user's approval. The `ci_build/dict/` cache is already approved and
+present; see "Local MCU data dictionaries" in
+[docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md) before refreshing
+it. Report exactly which checks ran and which could not run.
 
 ## Completion standard
 

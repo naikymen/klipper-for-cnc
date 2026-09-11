@@ -119,7 +119,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F2 | ABC homing, state, limits, and position reporting | done | `homing.py`, ABC kinematics, `M211` commits | Manual-stepper endstop modes; XYZ homing APIs | G28/position/status contracts, failure paths, motor-off state, soft-limit tests |
 | F3 | Directional G38 single probe | done | `probe_G38.py` | Current `probe.py` and `homing.py` | All four trigger modes, absolute/relative coordinates, feedrate, error cases |
 | F4 | Multiple named directional probes | done | `probe_G38_multi.py` | F3; current pin/endstop registration | Named selection, active-tool selection, query/status, conflict tests |
-| F5 | Home-able extruder steppers | audit | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
+| F5 | Home-able extruder steppers | automated | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
 | F6 | Extruder coordinate and limit semantics | audit | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
 | F7 | Mixed-axis G2/G3 arcs | audit | `gcode_arcs.py` | Current dynamic G-Code axis map | Endpoint, segmentation, feedrate, acceleration, absolute/relative mode tests |
 | F8 | Heater PID sampling/regression | audit | `heaters.py`, README PID section | Current heater control classes | Noisy-signal unit tests, compatibility defaults, documented tuning |
@@ -183,7 +183,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 | Feature | Legacy evidence | Strategy | Core edit? |
 | --- | --- | --- | --- |
 | F3/F4 | `probe_G38.py`, `probe_G38_multi.py` | New extras over `HomingMove` (imported directly) with a local axes-filtered no-movement check; F4 adds named mux commands and active-probe dispatch | no |
-| F5 | `extruder_home.py`, `extruder.py` | New extra over `manual_stepper`/`homing` homing primitives | no |
+| F5 | `extruder_home.py`, `extruder.py` | Rail-backed `ExtruderStepper` plus an `ExtruderHoming` toolhead adapter over the `manual_stepper`/`homing` homing primitives, folded into `kinematics/extruder.py` | no |
 | F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Wrap `RESTORE_GCODE_STATE` and saved-state logic via `register_command(..., None)` | no (see note) |
 | F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra | no (extra file) |
 | F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); re-derive numpy-free | no (extra file) |
@@ -256,6 +256,55 @@ physical tests for a protected machine with conservative speeds, reachable
 emergency stop, validated endstop polarity, and one new axis or probe behavior
 at a time.
 
+### Local MCU data dictionaries
+
+`scripts/test_klippy.py` needs a directory of MCU data dictionaries (`-d`) and
+the `.test` files reference them by name (for example
+`DICTIONARY atmega2560.dict`). Those dictionaries are binary build outputs, not
+source, so they are deliberately **not** committed. This machine has no
+`avr-gcc`, so `./scripts/ci-build.sh` cannot regenerate them locally and a
+cached copy is required to run any regression test at all.
+
+The cache lives at the same path the CI build script populates and the
+`build-test` workflow uploads as the `data-dict` artifact:
+
+| Path | Contents |
+| --- | --- |
+| `ci_build/dict/` | 42 extracted `*.dict` files, ready for `-d ci_build/dict` |
+| `ci_build/data-dict.zip` | The pristine `data-dict` CI artifact they were extracted from |
+
+`/ci_build/` is git-ignored, so the cache never enters the repository and never
+appears in `git status`.
+
+Standard invocations:
+
+```shell
+python3 scripts/test_klippy.py -d ci_build/dict test/klippy/<test>.test
+python3 scripts/test_klippy.py -d ci_build/dict test/klippy/*.test
+```
+
+To refresh or rebuild the cache:
+
+- **Preferred, needs the toolchain:** run `./scripts/ci-install.sh` followed by
+  `./scripts/ci-build.sh`, which repopulates `ci_build/dict/` in place without
+  deleting anything.
+- **Without the toolchain:** download the `data-dict` artifact from the
+  `build-test` workflow run of this (or the upstream) repository and extract it
+  into `ci_build/dict/`:
+
+  ```shell
+  gh run download --repo <owner>/<repo> --name data-dict --dir ci_build/dict
+  ```
+
+  or download the artifact zip from the Actions UI and run
+  `unzip data-dict.zip -d ci_build/dict`.
+
+The cached dictionaries are tied to the upstream MCU protocol they were built
+from. Re-download them after pulling a large upstream change or after any
+change to `src/`, otherwise batch tests can silently exercise an older
+protocol than the host code expects. `test/klippy/load_cell.test` additionally
+needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
+
 ## Decision log
 
 | Date | Decision | Reason |
@@ -286,6 +335,13 @@ at a time.
 | 2026-09-10 | F3 scope is XYZ-only; E probing and named probes deferred | Matches `develop`'s working G38 (it left a "TODO: update G38 to work with ABC axis"); extruder probing belongs to F5/F6 and named probes to F4 |
 | 2026-09-10 | F4 uses `[probe_G38_multi <name>]` with muxed named commands | `MULTIPROBE_TOWARD`, `MULTIPROBE_TOWARD_NOERROR`, `MULTIPROBE_AWAY`, and `MULTIPROBE_AWAY_NOERROR` carry `PROBE_NAME=...`; numeric legacy names are not parseable by current G-Code command parsing |
 | 2026-09-10 | F4 regular `G38.*` commands select by active extruder name, then explicit `SET_PROBE_G38`, then first configured probe | This keeps F4 independent of F5 while allowing extruder/probe naming to become automatic when home-able extruders are implemented |
+| 2026-09-11 | F5 folds extruder homing into `kinematics/extruder.py` instead of porting the `[extruder_homing]` extra | The extruder stepper itself must become homeable (rail-backed) and own its homed state, so a separate module would have to reach into private state; a rail-backed `ExtruderStepper` plus a small `ExtruderHoming` toolhead adapter keeps the change local and needs no new config section |
+| 2026-09-11 | A homeable extruder is enabled purely by adding `endstop_pin` to `[extruder]`/`[extruder1]` | Removes `develop`'s mandatory `[extruder_homing <name>]` section while keeping the same command set (`G28 E`, `HOME_EXTRUDER`, `HOME_ACTIVE_EXTRUDER`); `can_home` exposes whether the stepper has an endstop |
+| 2026-09-11 | `HomingMove` drives the extruder via a `PrinterExtruder`-shaped adapter rather than the toolhead | Mirrors `manual_stepper`, the established pattern for homing a stepper that is not one of the XYZ rails; leaves the active toolhead's trapq and axis mapping untouched, so homing an inactive extruder cannot perturb the active axis |
+| 2026-09-11 | Extended F5 with `homeable_extruder*.test` fixtures (min/max direction, must-home, bounds, `M84`, non-homeable `G28 E`) | `develop` carries no automated coverage for extruder homing; these lock in both directions, retract/second home, and error recovery |
+| 2026-09-11 | Deviation from `develop`: `G28 E` on a non-homeable extruder raises `No endstop for extruder '<name>'` | Current master's `cmd_G28` routes an explicit axis letter straight to the extra axis's `home()`, while `develop` silently ignored `E` and homed XYZ; the explicit error is clearer and keeps master's semantics |
+| 2026-09-11 | Deviation from `develop`: "Must home extruder axis first" is not gated by `M211` | Matches the house style for extra axes (`ManualStepper.check_move`, `CartKinematics._check_endstops`); `M211` still gates the out-of-bounds check |
+| 2026-09-11 | Cache the MCU data dictionaries at `ci_build/dict/` (git-ignored), alongside the pristine `data-dict.zip` CI artifact | Dictionaries are binary build outputs and stay out of Git, but this machine has no `avr-gcc`, so a cached copy is required to run any regression test; `ci_build/dict` is the exact path `scripts/ci-build.sh` populates, so a toolchain-enabled refresh is a no-op copy. See "Local MCU data dictionaries" |
 
 ## Per-slice handoff template
 

@@ -1,0 +1,13 @@
+# F5 test: moving the extruder out of range must fail.
+#
+# After homing, an E move beyond position_max (50) must fail while soft
+# limits are enabled (default M211 S1).
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder.cfg
+SHOULD_FAIL
+
+# Home XYZ and the homeable extruder.
+G28
+
+# Extruding beyond position_max must fail with soft limits enabled.
+G1 E100
