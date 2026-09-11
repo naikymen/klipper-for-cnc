@@ -6,11 +6,12 @@ in this fork. It is a design proposal, not yet a settled plan; see
 [CNC_Reimplementation.md](CNC_Reimplementation.md) for the durable roadmap and
 the decision log where this work will be scheduled.
 
-Related: [Failure modes](#1-background-why-klippers-current-failures-are-unrecoverable),
-[the homing-pattern discovery](#2-the-key-discovery-homing-already-implements-the-recovery-loop),
-[proposed architecture](#3-proposed-architecture),
-[phased plan](#4-phased-implementation-plan),
-[risks](#5-risks--open-questions).
+Related: [failure modes](#1-background-why-klippers-current-failures-are-unrecoverable),
+[standard CNC behavior](#2-how-standard-cnc-machines-handle-this),
+[the homing-pattern discovery](#3-the-key-discovery-homing-already-implements-the-recovery-loop),
+[proposed architecture](#4-proposed-architecture),
+[phased plan](#5-phased-implementation-plan),
+[risks](#6-risks--open-questions).
 
 ## 1. Background: why Klipper's current failures are unrecoverable
 

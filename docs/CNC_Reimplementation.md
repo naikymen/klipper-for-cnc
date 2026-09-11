@@ -142,6 +142,27 @@ the user before spending substantial implementation effort.
 | S7 | AVR compatibility fixes and requirement changes | Verify whether already present upstream; do not port blindly |
 | S8 | Branding, funding, issue templates, install scripts, and old images | Defer until functional compatibility and release preparation |
 
+## Motion fault recovery and reversibility (design proposal)
+
+The audit above stops at feature parity. Separately, an investigation of
+Klipper's failure modes found that the three motion faults a CNC machine is
+most likely to hit — `Timer too close`, `Lost communication` / `Missed
+scheduling of next …`, and zero-interval `queue_step` / `Stepper too far in
+past` — are all fatal in current Klipper. Each ends in
+`sched_shutdown()`/`invoke_shutdown()`, and the only exit is
+`RESTART`/`FIRMWARE_RESTART`, which discards every host-side position authority.
+A stock CNC controller instead feed-holds, retains the authoritative position,
+and resumes.
+
+[CNC_Motion_Recovery.md](CNC_Motion_Recovery.md) documents the full
+investigation, the evidence (including the finding that homing already
+implements the required interrupt → read-back → resync loop), and a phased
+design for controlled deceleration, fault recovery, and reversible/pendant-step
+motion. It is **not yet scheduled** and is outside the F0–F9 compatibility
+promise; it is recorded here so the feature rows above are not mistaken for the
+whole design space. Its phases 1–2 follow the extras-first policy below; only
+phase 3 needs `src/` edits.
+
 ## Feature integration strategy: extras first
 
 The audit and F0–F2 confirm the fork's remaining behavior can be rebuilt as
