@@ -204,23 +204,65 @@ class ControlPID:
         self.prev_temp_time = 0.
         self.prev_temp_deriv = 0.
         self.prev_temp_integ = 0.
+        # Optional sample window.  When "samples" is not configured the sensor
+        # is fed to the PID terms as-is; see _filter_sample().
+        self.samples = config.getint('samples', None, minval=2)
+        self.sample_times = []
+        self.sample_temps = []
+    def _calc_mean(self):
+        return sum(self.sample_temps) / len(self.sample_temps)
+    def _calc_slope(self):
+        # Least squares slope of the sample window.
+        num_samples = len(self.sample_temps)
+        if num_samples < 2:
+            return self.prev_temp_deriv
+        # Center on the first timestamp: read_time is an absolute process time,
+        # so the raw moment formula n*sum(x*y)-sum(x)*sum(y) loses precision on
+        # machines that have been up for a long time.
+        first_time = self.sample_times[0]
+        times = [t - first_time for t in self.sample_times]
+        mean_time = sum(times) / num_samples
+        mean_temp = sum(self.sample_temps) / num_samples
+        num = den = 0.
+        for i in range(num_samples):
+            time_delta = times[i] - mean_time
+            num += time_delta * (self.sample_temps[i] - mean_temp)
+            den += time_delta * time_delta
+        if not den:
+            # Every sample carries the same timestamp - no slope to measure.
+            return self.prev_temp_deriv
+        return num / den
+    def _filter_sample(self, read_time, temp, time_diff):
+        if self.samples is None:
+            # Report the raw temperature, and filter the rate of change with a
+            # "smooth_time" time constant.
+            temp_diff = temp - self.prev_temp
+            if time_diff >= self.min_deriv_time:
+                temp_deriv = temp_diff / time_diff
+            else:
+                temp_deriv = (self.prev_temp_deriv
+                              * (self.min_deriv_time - time_diff)
+                              + temp_diff) / self.min_deriv_time
+            return temp, temp_deriv
+        # Feed the PID terms an average of the last "samples" measurements, and
+        # report the rate of change as the slope through those measurements.
+        self.sample_times.append(read_time)
+        self.sample_temps.append(temp)
+        if len(self.sample_temps) > self.samples:
+            self.sample_times.pop(0)
+            self.sample_temps.pop(0)
+        return self._calc_mean(), self._calc_slope()
     def temperature_update(self, read_time, temp, target_temp):
         time_diff = read_time - self.prev_temp_time
-        # Calculate change of temperature
-        temp_diff = temp - self.prev_temp
-        if time_diff >= self.min_deriv_time:
-            temp_deriv = temp_diff / time_diff
-        else:
-            temp_deriv = (self.prev_temp_deriv * (self.min_deriv_time-time_diff)
-                          + temp_diff) / self.min_deriv_time
+        temp_meas, temp_deriv = self._filter_sample(read_time, temp, time_diff)
         # Calculate accumulated temperature "error"
-        temp_err = target_temp - temp
+        temp_err = target_temp - temp_meas
         temp_integ = self.prev_temp_integ + temp_err * time_diff
         temp_integ = max(0., min(self.temp_integ_max, temp_integ))
         # Calculate output
         co = self.Kp*temp_err + self.Ki*temp_integ - self.Kd*temp_deriv
-        #logging.debug("pid: %f@%.3f -> diff=%f deriv=%f err=%f integ=%f co=%d",
-        #    temp, read_time, temp_diff, temp_deriv, temp_err, temp_integ, co)
+        #logging.debug("pid: %f@%.3f -> deriv=%f err=%f integ=%f co=%d",
+        #    temp, read_time, temp_deriv, temp_err, temp_integ, co)
         bounded_co = max(0., min(self.heater_max_power, co))
         self.heater.set_pwm(read_time, bounded_co)
         # Store state for next measurement
@@ -256,7 +298,8 @@ class PrinterHeaters:
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command("TURN_OFF_HEATERS", self.cmd_TURN_OFF_HEATERS,
                                desc=self.cmd_TURN_OFF_HEATERS_help)
-        gcode.register_command("M105", self.cmd_M105, when_not_ready=True)
+        gcode.register_command("M105", self.cmd_M105, when_not_ready=True,
+                               desc=self.cmd_M105_help)
     def load_config(self, config):
         self.have_load_sensors = True
         # Load default temperature sensors
@@ -338,6 +381,7 @@ class PrinterHeaters:
         if not out:
             return "T:0"
         return " ".join(out)
+    cmd_M105_help = "Get extruder temperature"
     def cmd_M105(self, gcmd):
         # Get Extruder Temperature
         reactor = self.printer.get_reactor()

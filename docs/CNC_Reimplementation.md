@@ -122,7 +122,7 @@ or `defer`. Only one or two rows should normally be in `implement` at once.
 | F5 | Home-able extruder steppers | automated | `extruder_home.py`, `extruder.py` | Extra-axis and current homing primitives | Multiple extruders, both directions, retract/second home, error recovery |
 | F6 | Extruder coordinate and limit semantics | automated | `gcode_move.py`, `extruder.py` | Current active-extruder and saved-state code | Tool-change absolute E, restore policy, kinematic reset, symmetric limits |
 | F7 | Mixed-axis G2/G3 arcs | automated | `gcode_arcs.py` | Current dynamic G-Code axis map | Extra axes travel alongside the arc in all three planes and land exactly on the target; an un-homed extra axis is rejected; upstream `gcode_arcs.test` unchanged and passing |
-| F8 | Heater PID sampling/regression | audit | `heaters.py`, README PID section | Current heater control classes | Noisy-signal unit tests, compatibility defaults, documented tuning |
+| F8 | Heater PID sampling/regression | automated | `heaters.py`, `docs/Config_Reference.md` PID entry | Current heater control classes | `samples`-gated window mean + regression slope in `ControlPID`; default path bit-identical (asserted); 10 unit cases in `test/unit/test_heaters.py` plus two config fixtures; `samples` documented in the `[extruder]` PID block; tuning and the measured `develop` default recorded in the decision log |
 | F9 | CNC configuration and migration docs | audit | CNC shield config and fork README | Current config conventions | Tested example, config reference, G-Code docs, migration guide |
 
 ### Secondary changes requiring scope decisions
@@ -207,7 +207,7 @@ a small core hook. Adopt this policy for F3–F9 and S1–S8:
 | F5 | `extruder_home.py`, `extruder.py` | Rail-backed `ExtruderStepper` plus an `ExtruderHoming` toolhead adapter over the `manual_stepper`/`homing` homing primitives, folded into `kinematics/extruder.py` | no |
 | F6 | `gcode_move.py` `relative_e_restore`, `extruder.py` | Two new `[printer]` booleans gating existing rebases in `gcode_move.py`, one new `[extruder]` boolean in `kinematics/extruder.py`, plus an extruder branch in `force_move.py`'s `SET_KINEMATIC_POSITION` | no (existing extras and kinematics only) |
 | F7 | `gcode_arcs.py` | `gcode_arcs.py` is already an extra; interpolate every registered extra axis linearly alongside the arc and snap the last segment to the exact commanded target | no (extra file) |
-| F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); re-derive numpy-free | no (extra file) |
+| F8 | `heaters.py` | Edit `extras/heaters.py` (already an extra); the sample window is read by `ControlPID` itself, so no core edit is needed | no (extra file) |
 | S1 | `manual_spinner.py` | Existing manual-stepper APIs | no |
 | S3 | `skew_correction.py` `SET_SKEW_FACTORS` | Already an extra, self-contained | no (extra file) |
 | S5 | `gcode.py`, `webhooks.py` | Wrap `gcode.get_command_help` plus the help webhook; a ~15-line `gcode.py` edit is the fallback | optional |
@@ -230,8 +230,8 @@ and are omitted from this table.
 3. F3 and F4 build probing on the settled axis/homing abstractions.
 4. F5 and F6 address extruders without entangling them with the ABC design.
 5. F7 follows once mixed-axis timing semantics are stable.
-6. F8 can proceed independently after its behavior and tuning contract are
-   specified.
+6. F8 proceeds independently: the behavior and tuning contract was settled
+   before implementation (see the decision log).
 7. F9 evolves with every slice and finishes with migration and release docs.
 
 This order may change after F0. Record the reason in the decision log rather
@@ -279,6 +279,24 @@ Inspect serialized batch output when timing or step generation matters. Reserve
 physical tests for a protected machine with conservative speeds, reachable
 emergency stop, validated endstop polarity, and one new axis or probe behavior
 at a time.
+
+### Unit tests for arithmetic
+
+`scripts/test_klippy.py` only inspects the exit status of a klippy run, so it
+can prove that a configuration is accepted or rejected but cannot assert
+anything about a computed value. Features whose contract is arithmetic (F8's
+PID terms) therefore get a stdlib `unittest` module under `test/unit/`, which
+instantiates the class under test against small stubs:
+
+```shell
+python3 test/unit/test_heaters.py
+```
+
+These are a separate entry point on purpose: nothing in `scripts/ci-install.sh`
+or the `build-test` workflow runs them yet, so they must be invoked explicitly.
+A unit test added here has to be shown to fail against the pre-slice code, and
+to fail against a re-introduction of the legacy behavior it replaces, before it
+counts as evidence.
 
 ### Local MCU data dictionaries
 
@@ -377,6 +395,18 @@ needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
 | 2026-09-11 | F7 fixes `develop`'s extra-axis endpoint bug instead of reproducing it | `develop` advances each axis by `target / segments` from the current position, which lands on `currentPos + target` whenever the arc starts away from zero. The port interpolates `(target - currentPos)` and keeps the final-segment snap |
 | 2026-09-11 | F7 does not port `develop`'s `cmd_G2/G3/G17/G18/G19_help` attributes or its per-segment `/tmp/gcode.log` logging | The help strings are inert on `develop` (its `register_command` calls pass no `desc=`, and `gcode.py` only records a description supplied at registration), so porting them would add dead code; surfacing command help is S5. The file logging is a debugging artifact |
 | 2026-09-11 | F7 adds `gcode_arcs_abc.cfg`, `gcode_arcs_abc.test` and `gcode_arcs_abc_unhomed.test`, and leaves upstream's `gcode_arcs.cfg`/`.test` byte-identical | `test_klippy.py` only inspects exit status, so the `SHOULD_FAIL` fixture leaves the endstop-equipped B axis un-homed: an arc carrying `B` must be rejected, and it is that fixture (not the positive one) which discriminates — verified by running it against `master`'s `gcode_arcs.py`, where it fails with "Test failed to raise an error". The positive fixture instead uses a tight `position_max: 60` on axis A so that a wrong endpoint becomes a hard "Move out of range"; re-introducing `develop`'s endpoint arithmetic makes it fail, which is the regression guard |
+
+| 2026-09-11 | F8 adds `samples` as an **opt-in** window: when the option is absent `ControlPID` runs the upstream arithmetic unchanged, and when it is present (`,minval=2`) the P/I terms see the window mean and the D term the regression slope | `develop` reads `samples` in `Heater.__init__` with a default of `2`, so its window is always on. Every existing printer must keep `develop`-free behavior unless it asks, matching the F6 precedent; the regression test asserts the default path is bit-identical to the pre-F8 code |
+| 2026-09-11 | F8 does **not** adopt `develop`'s `samples: 2` default | Measured against the F8 fixture plant (first-order, 15 s time constant, 0.3 s samples, `pid_Kp: 22.2`, `pid_Ki: 1.08`, `pid_Kd: 114`, RMS error of the D-term estimate vs the plant's true rate over the second half of a 60 s run): at 1.5 C of sensor noise the default is 1.63, `samples: 5` is 1.48, `samples: 10` is 0.60, and `samples: 2` is 7.37 — a two-point window differentiates noise instead of rejecting it. `develop`'s own README already recommends 10, so the default stays with upstream |
+| 2026-09-11 | F8 guards the regression denominator instead of dividing by `n*sum_x_sq - sum_x**2` | The port keeps `develop`'s least-squares slope but not its unconditional division, because that denominator is exactly `0.0` when two samples carry the same `read_time` and it *underflows* to `0.0` after long uptime (measured: 5e7 s with a 2-sample window, 1e9 s with a 10-sample window). `develop` raises `ZeroDivisionError` in both cases, which would take klippy down; the port falls back to the previous slope and `test_repeated_timestamps_do_not_divide_by_zero` reproduces the crash against `develop`'s formula |
+| 2026-09-11 | F8 centers the regression on the first sample timestamp instead of using `develop`'s raw moment formula | `read_time` is an absolute process time, so the raw formula cancels away most of its precision. Measured relative error for an exact 0.5 C/s ramp: `samples: 2` at 1e8 s of uptime is 101% off in the raw form, and at 1e9 s a 10-sample window underflows to a zero denominator and raises `ZeroDivisionError`. Centering keeps the error at ~1e-8, which is the quantization limit of `read_time` itself |
+| 2026-09-11 | F8 reads `samples` inside `ControlPID` rather than in `Heater` as `develop` does | `develop`'s placement makes the option valid on every heater, including `control: watermark` ones where it is silently ignored. Reading it where it is used means an ineffective `samples` line on a bang-bang heater is a config error instead of dead configuration |
+| 2026-09-11 | F8 leaves the separate `ControlPID` in `extras/temperature_fan.py` alone | `develop` did not touch it, so a `samples` line on a temperature fan stays invalid on both branches and there is no behavior to match. Recorded here because the limitation is user-visible |
+| 2026-09-11 | F8 adds `test/unit/test_heaters.py`, a stdlib `unittest` module, as a new test entry point | `scripts/test_klippy.py` only inspects exit status, so it can accept the `samples` option and nothing more. The arithmetic contract needs direct instantiation of `ControlPID` against stubs; the file is standalone and explicitly invoked, because no CI script runs `test/unit/` yet. See "Unit tests for arithmetic" |
+| 2026-09-11 | F8 pairs the unit test with two `test/klippy` fixtures (`heater_pid_samples` and `heater_pid_samples_invalid`) | The negative fixture is deliberately not a discriminator against pre-F8 code (the option is unknown there, so the config fails for a different reason) but it does catch the regression that matters: dropping `minval=2` makes klippy accept `samples: 1` and the fixture fails with "Test failed to raise an error" (verified). The positive fixture proves the option works on `[extruder]`, `[heater_bed]` and `[heater_generic]` alike, and alongside its absence on another heater |
+| 2026-09-11 | F8 ports the `M105` `desc=` registration but lowercases the help string to "Get extruder temperature" | The registration is the real change (an undocumented command is a defect; surfacing help is S5 territory, but the attribute is inert without `desc=`). The wording is normalized to the file's own style and `docs/G-Codes.md`, and no test asserts it |
+
+| 2026-09-11 | F8 leaves the `README.md` "PID sample averaging" section to F9 | The fork README currently has no diff from `master`, and no earlier slice added its feature section there either; F9's target is explicitly "CNC shield config and fork README". The `develop` README bullet ("The `samples` config parameter must be set to, at least, `2`. I tested it with 5.") and its `samples: 10` example are the text to adapt, with the opt-in default and the `minval=2` requirement corrected |
 
 ## Per-slice handoff template
 

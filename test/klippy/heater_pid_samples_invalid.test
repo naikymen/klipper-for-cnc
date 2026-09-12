@@ -1,0 +1,9 @@
+# F8 negative test: "samples" below the minimum window size is rejected.
+#
+# A window of one sample has nothing to regress through, so pid_Kd could not
+# be computed at all; the option must fail at config time.
+DICTIONARY atmega2560.dict
+CONFIG heater_pid_samples_invalid.cfg
+SHOULD_FAIL
+
+M105

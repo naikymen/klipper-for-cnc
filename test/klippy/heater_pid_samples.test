@@ -1,0 +1,24 @@
+# F8 test: a config that exercises the PID sample window.
+#
+# The heater test harness only inspects the exit status of the klippy run, so
+# it cannot check the PID arithmetic; test/unit/test_heaters.py does that.
+# What this run proves is that the option is accepted, that it is accepted on
+# extruder/heater_bed/heater_generic alike, that it is accepted alongside its
+# absence on other heaters, and that the whole temperature loop still runs.
+DICTIONARY atmega2560.dict
+CONFIG heater_pid_samples.cfg
+
+M105
+
+M104 S100
+M105
+
+M140 S60
+SET_HEATER_TEMPERATURE HEATER=chamber TARGET=50
+M105
+
+M140 S0
+M104 S0
+SET_HEATER_TEMPERATURE HEATER=chamber TARGET=0
+TURN_OFF_HEATERS
+M105

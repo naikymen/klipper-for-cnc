@@ -1009,6 +1009,17 @@ pid_Kd:
 #   off and 1.0 being full on. Consider using the PID_CALIBRATE
 #   command to obtain these parameters. The pid_Kp, pid_Ki, and pid_Kd
 #   parameters must be provided for PID heaters.
+#samples:
+#   An integer of at least 2 that enables averaging of the temperature
+#   measurements used by the PID control algorithm. When set, the
+#   proportional term uses the mean of the last "samples" measurements
+#   and the derivative term uses their least-squares slope, instead of
+#   the raw measurement and Klipper's default derivative smoothing.
+#   This can greatly reduce the effect of a noisy temperature sensor on
+#   the derivative term. Larger values filter noise more but respond
+#   more slowly; 10 is a reasonable starting point. The default is to
+#   use the measurements without averaging, which is the traditional
+#   Klipper behavior.
 #max_delta: 2.0
 #   On 'watermark' controlled heaters this is the number of degrees in
 #   Celsius above the target temperature before disabling the heater
