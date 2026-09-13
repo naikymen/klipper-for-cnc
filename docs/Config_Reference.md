@@ -126,6 +126,22 @@ max_accel:
 #   decelerate to zero at each corner. The value specified here may be
 #   changed at runtime using the SET_VELOCITY_LIMIT command. The
 #   default is 5mm/s.
+#relative_e_restore: True
+#   Determines if the RESTORE_GCODE_STATE command re-bases the extruder
+#   coordinate on the value it had when the state was saved. The
+#   default is True, which is the behavior of a 3D printer, where the
+#   extruder coordinate tracks filament used since the state was saved
+#   and is not expected to match the physical position of the
+#   extruder. Set to False on machines that treat the extruder as a
+#   regular axis (for example, a pipetting or extrusion machine with a
+#   homeable extruder), so that the extruder coordinate continues to
+#   track the axis position across a save/restore.
+#tool_change_e_reset: True
+#   Determines if the extruder coordinate is re-based on the newly
+#   active extruder when an ACTIVATE_EXTRUDER or T<index> command runs
+#   (a hidden "G92 E0"). The default is True, which is what slicers
+#   expect from a tool change. Set to False to keep the extruder
+#   coordinate absolute across tool changes.
 ```
 
 ### [stepper]
@@ -952,6 +968,44 @@ filament_diameter:
 #   specified then they are calculated to match the limit an XY
 #   printing move with a cross section of 4.0*nozzle_diameter^2 would
 #   have.
+#symmetric_speed_limits: False
+#   If set to True, the max_extrude_only_velocity and
+#   max_extrude_only_accel limits above apply to every move of the
+#   extruder, not just to retractions and extrude-only moves. The
+#   default is False, which is the behavior of a 3D printer. Enable
+#   this on machines that treat the extruder as a regular axis (for
+#   example, a pipetting machine with a slow Z or plunger axis driven
+#   by the extruder stepper), so that a shared move cannot command the
+#   extruder faster than its own limits allow.
+#endstop_pin:
+#   Endstop switch detection pin for the extruder stepper. If
+#   specified, the extruder becomes a home-able axis: it gains
+#   position limits, it can be homed, and g-code moves fail until it
+#   has been homed (see the HOME_EXTRUDER and HOME_ACTIVE_EXTRUDER
+#   commands in the [command reference](G-Codes.md#extruder)). This is
+#   useful on machines that use the extruder stepper as a regular
+#   axis, for example as a pipette plunger or another positioning
+#   axis. The default is to not associate an endstop with the extruder
+#   stepper, in which case none of the following parameters have an
+#   effect.
+#position_endstop:
+#   The position of the extruder axis when the endstop triggers. This
+#   parameter must be provided when endstop_pin is specified.
+#position_max:
+#   The maximum position the extruder axis may be commanded to move
+#   to. This parameter must be provided when endstop_pin is
+#   specified.
+#position_min: 0
+#   The minimum position the extruder axis may be commanded to move
+#   to. The default is 0.
+#homing_speed:
+#second_homing_speed:
+#homing_retract_speed:
+#homing_retract_dist:
+#homing_positive_dir:
+#   See the "stepper" section for a description of these homing
+#   parameters. They are only used when endstop_pin is specified, and
+#   their defaults are the same as in the "stepper" section.
 #pressure_advance: 0.0
 #   The amount of raw filament to push into the extruder during
 #   extruder acceleration. An equal amount of filament is retracted
@@ -2382,6 +2436,66 @@ sensor_type: ldc1612
 #   systemic probing bias, or similar. The default is zero.
 ```
 
+### [probe_G38]
+
+Directional probing with the standard `G38.2`, `G38.3`, `G38.4`, and
+`G38.5` g-code commands. Unlike the [probe](#probe) section, this
+section does not consume any kinematics information (no nozzle or bed
+offsets, no probe samples, no Z virtual endstop) - it only provides a
+probe pin and the four directional moves described in the
+[command reference](G-Codes.md#probe_g38). This makes it suitable for
+machines that contact a workpiece or a workpiece surface with a
+touch-probe or an electrically conductive tool, and that do not
+otherwise need a Z probe.
+
+See the [probe config section](#probe) if a conventional Z height
+probe (with `PROBE`, `PROBE_ACCURACY`, `PROBE_CALIBRATE`, and the
+`probe:z_virtual_endstop` pin) is needed instead.
+
+```
+[probe_G38]
+pin:
+#   Probe detection pin. This parameter must be provided.
+#recovery_time: 0.4
+#   Time (in seconds) to dwell before beginning a probing move. The
+#   default is 0.4 seconds.
+```
+
+Only X, Y, and Z may be given as the target of a G38 move - the extra
+axes (including the extruder axis) can not be probed.
+
+This section is optional if named probes are configured: when no
+`[probe_G38]` section is present, the plain `G38.*` and `QUERY_PROBE`
+commands are registered by the first [probe_G38_multi](#probe_g38_multi)
+section and operate on one of the named probes, as described in the
+[command reference](G-Codes.md#probe_g38_multi). The probe that this
+section defines takes precedence over the named probes for those
+commands whenever the section is present.
+
+### [probe_G38_multi <name>]
+
+Multiple named directional probes. One may define any number of
+sections with a "probe_G38_multi" prefix; each section defines one
+probe with a name. All of the parameters of the
+[probe_G38](#probe_g38) section are accepted. The named probes are
+selected with the `MULTIPROBE_TOWARD`, `MULTIPROBE_TOWARD_NOERROR`,
+`MULTIPROBE_AWAY`, and `MULTIPROBE_AWAY_NOERROR` commands, and the
+probe used by the plain `G38.*` and `QUERY_PROBE` commands is chosen
+by the rules described in the [command
+reference](G-Codes.md#probe_g38_multi).
+
+The name of a section is significant: it is used to select the probe
+in the `PROBE_NAME` parameter of the multi-probe commands, and it is
+matched against the name of the active extruder when the plain `G38.*`
+commands select a probe.
+
+```
+[probe_G38_multi left_touch]
+pin: ^PA1
+#   See the probe_G38 section for a description of the available
+#   parameters.
+```
+
 ### [axis_twist_compensation]
 
 A tool to compensate for inaccurate probe readings due to twist in X or Y
@@ -2669,7 +2783,33 @@ printer kinematics.
 #endstop_pin:
 #   Endstop switch detection pin. If specified, then one may perform
 #   "homing moves" by adding a STOP_ON_ENDSTOP parameter to
-#   MANUAL_STEPPER movement commands.
+#   MANUAL_STEPPER movement commands. Additionally, if gcode_axis is
+#   specified then the axis may be homed with a G28 command and it
+#   must be homed before it will move (see
+#   [G-Codes](G-Codes.md#manual_stepper)). Note that position_min and
+#   position_max must also be specified to home an extra axis.
+#position_endstop: 0
+#   The position of the extra axis when its endstop triggers. This
+#   parameter is used whenever endstop_pin is specified. The default is
+#   0, which homes the axis towards position 0 (that is, in the
+#   negative direction). It must not be negative.
+#homing_speed:
+#second_homing_speed:
+#homing_retract_speed:
+#homing_retract_dist:
+#homing_positive_dir:
+#   See the "stepper" section for a description of these parameters.
+#   They are read whenever endstop_pin is specified, so they affect
+#   both the STOP_ON_ENDSTOP homing moves of this section and the G28
+#   homing of a declared extra axis. Note that this section passes its
+#   own position_min (0) and position_max (position_endstop) to the
+#   homing mechanics, so an explicit homing_positive_dir is only
+#   accepted when it agrees with position_endstop: True requires a
+#   non-zero position_endstop, and False is rejected in this section
+#   altogether. Omit the parameter to have the direction inferred, as
+#   described in the "stepper" section. As for the xyz axes, the
+#   homing move starts outside the position_min to position_max range
+#   and finishes at position_endstop.
 #position_min:
 #position_max:
 #   The minimum and maximum position the stepper can be commanded to
@@ -2677,6 +2817,24 @@ printer kinematics.
 #   past the given position. Note that these limits do not prevent
 #   setting an arbitrary position with the `MANUAL_STEPPER
 #   SET_POSITION=x` command. The default is to not enforce a limit.
+#gcode_axis:
+#   If specified, the stepper is registered as a named extra G-Code
+#   axis when the printer starts. For example, a `gcode_axis: A`
+#   setting on a `[manual_stepper]` section makes that stepper follow
+#   the A coordinate of G1 moves, exactly as if a
+#   `MANUAL_STEPPER ... GCODE_AXIS=A` command had been issued at
+#   startup. The value is converted to uppercase, and must then be a
+#   single letter that is not one of X, Y, Z, E, F, or N. See
+#   [G-Codes](G-Codes.md#manual_stepper) for the additional commands
+#   this enables and for the homing and limit behavior of extra axes.
+#   The default is to not register the stepper as a G-Code axis.
+#instantaneous_corner_velocity: 1.0
+#limit_velocity: 999999.9
+#limit_accel: 999999.9
+#   These parameters only apply when gcode_axis is specified, and
+#   have the same meaning as the INSTANTANEOUS_CORNER_VELOCITY,
+#   LIMIT_VELOCITY, and LIMIT_ACCEL parameters of the associated
+#   `MANUAL_STEPPER ... GCODE_AXIS=` command.
 ```
 
 ## Custom heaters and sensors

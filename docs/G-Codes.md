@@ -9,6 +9,16 @@ Klipper supports the following standard G-Code commands:
 - Move (G0 or G1): `G1 [X<pos>] [Y<pos>] [Z<pos>] [E<pos>] [F<speed>]`
 - Dwell: `G4 P<milliseconds>`
 - Move to origin: `G28 [X] [Y] [Z]`
+  - Note: On this fork, if no axis is named then `G28` also homes every
+    home-able extra axis, including a home-able extruder. Extra axes
+    may also be named explicitly - for example `G28 A` homes the extra
+    axis declared with `gcode_axis: A`.
+- Probe toward workpiece: `G38.2 [X<pos>] [Y<pos>] [Z<pos>] [F<speed>]`
+- Probe toward workpiece, no error if the probe does not trigger:
+  `G38.3 [X<pos>] [Y<pos>] [Z<pos>] [F<speed>]`
+- Probe away from workpiece: `G38.4 [X<pos>] [Y<pos>] [Z<pos>] [F<speed>]`
+- Probe away from workpiece, no error if the probe does not clear:
+  `G38.5 [X<pos>] [Y<pos>] [Z<pos>] [F<speed>]`
 - Turn off motors: `M18` or `M84`
 - Wait for current moves to finish: `M400`
 - Use absolute/relative coordinates: `G90`, `G91`
@@ -23,6 +33,15 @@ Klipper supports the following standard G-Code commands:
   - Note: If S is not specified and both P and T are specified, then
     the acceleration is set to the minimum of P and T. If only one of
     P or T is specified, the command has no effect.
+- Set software endstop/limit checking: `M211 [S<0|1>]`
+  - Note: `M211 S0` disables the software endstop and limit checks,
+    which allows moving the machine past a configured `position_min`
+    or `position_max`. This is useful for manually recovering a
+    machine that has lost its position, or that must be moved out of
+    the way before homing. It does not disable the "Must home axis
+    first" checks, nor does it affect the endstops used while homing.
+    `M211 S1` re-enables the checks, and `M211` without parameters
+    reports the current state.
 - Get extruder temperature: `M105`
 - Set extruder temperature: `M104 [T<index>] [S<temperature>]`
 - Set extruder temperature and wait: `M109 [T<index>] S<temperature>`
@@ -36,6 +55,10 @@ Klipper supports the following standard G-Code commands:
 - Turn fan off: `M107`
 - Emergency stop: `M112`
 - Get current position: `M114`
+  - Note: On this fork, the reported position includes every configured
+    extra axis (for example, the A/B/C axes of a machine that declares
+    them with the `gcode_axis` setting of the
+    [manual_stepper](Config_Reference.md#manual_stepper) section).
 - Get firmware version: `M115`
 
 For further details on the above commands see the
@@ -496,6 +519,23 @@ to become synchronized to the movement of an extruder specified by
 MOTION_QUEUE (as defined in an [extruder](Config_Reference.md#extruder)
 config section). If MOTION_QUEUE is an empty string then the stepper
 will be desynchronized from all extruder movement.
+
+#### HOME_EXTRUDER
+`HOME_EXTRUDER EXTRUDER=<config_name>`: Home the extruder axis against
+its own endstop. This command is only available for extruders that
+have an `endstop_pin` defined in their
+[extruder](Config_Reference.md#extruder) config section. The homing
+move uses the `position_endstop`, `homing_speed`,
+`homing_retract_dist`, and `homing_positive_dir` settings of that
+section. An extruder axis must be homed with this command (or with
+`G28 <axis>`) before it will accept movement, and `M18`/`M84` clears
+its homed state.
+
+#### HOME_ACTIVE_EXTRUDER
+`HOME_ACTIVE_EXTRUDER`: Home the extruder axis of the currently active
+extruder (see the ACTIVATE_EXTRUDER command). This is a convenience
+wrapper for `HOME_EXTRUDER` that does not require naming the extruder.
+An error is reported if the active extruder has no endstop configured.
 
 ### [fan_generic]
 
@@ -1054,6 +1094,28 @@ acceleration above the specified limits. The
 velocity change (in mm/s) of the motor during the junction of two
 moves (the default is 1mm/s).
 
+Instead of registering the axis with a command, the axis may be
+declared in the config file with the `gcode_axis` setting of the
+[manual_stepper config section](Config_Reference.md#manual_stepper).
+Such an axis is registered when the printer starts, and is therefore
+available to `G1` commands without a prior command. Declarative axes
+behave exactly like axes registered with the command above.
+
+Extra axes registered as G-Code axes may be homed and limited like the
+XYZ axes when their `[manual_stepper]` section defines an `endstop_pin`
+together with `position_min` and `position_max`:
+
+* `G28` homes every home-able extra axis if no axis is named, and a
+  single extra axis may be homed with an explicit name, for example
+  `G28 A`.
+* A home-able extra axis must be homed before it will participate in a
+  move - moves of an un-homed extra axis are rejected with an error of
+  the form `Must home axis A first`. `M18`/`M84` clears the homed state
+  of the extra axes.
+* The `position_min` and `position_max` of the section are enforced as
+  soft limits, and may be temporarily disabled with `M211 S0`.
+* The `M114` and `GET_POSITION` commands report the extra axes.
+
 ### [mcp4018]
 
 The following command is available when a
@@ -1286,6 +1348,99 @@ about 20mm above the bed surface. Run this command to determine an
 appropriate DRIVE_CURRENT for the sensor. After running this command
 use the SAVE_CONFIG command to store that new setting in the
 printer.cfg config file.
+
+### [probe_G38]
+
+The following commands are available when a
+[probe_G38 config section](Config_Reference.md#probe_g38) is defined.
+
+#### G38.2 / G38.3 / G38.4 / G38.5
+`G38.2 [X<pos>] [Y<pos>] [Z<pos>] [F<speed>]`: Probe toward the
+workpiece and stop when the probe pin triggers. `G38.3` behaves like
+`G38.2`, but the move is not aborted if the probe does not trigger
+within the move distance. `G38.4` probes away from the workpiece and
+stops when the probe pin clears. `G38.5` behaves like `G38.4`, but the
+move is not aborted if the probe does not clear within the move
+distance.
+
+At least one of the `X`, `Y`, or `Z` parameters must be supplied, and
+the target of an axis is interpreted like the target of a `G1` move
+(absolute or relative, according to the current G-Code state). The `F`
+parameter sets the probing speed in mm/s. The axes move towards the
+given target position until the probe pin changes state. The result of
+the probe is reported, either as `probe trigger at ...` with the
+trigger position of the probed axes, or as
+`probe ended without trigger at ...`. A probing move that stops without
+any of the probed axes moving - which is what happens when the probe
+pin already satisfies the condition the move is waiting to leave - is
+aborted with a `Probe triggered prior to movement` error, so that a
+mis-wired or already-touching probe does not report a bogus trigger
+position.
+
+If `recovery_time` is non-zero, the printer dwells for that amount of
+time before starting the probe move, which gives the probe time to
+settle in response to the moves that preceded it.
+
+#### QUERY_PROBE
+`QUERY_PROBE`: Report the current state of the probe pin, for example
+`probe: TRIGGERED` or `probe: open`.
+
+The probe pin is also reported by the QUERY_ENDSTOPS and M119 commands
+of the [endstop query module](Config_Reference.md#query_endstops), and
+by the `query_endstops/status` webhook that frontends use for their
+endstop panel, under the name `probe`.
+
+### [probe_G38_multi]
+
+The following commands are available when a
+[probe_G38_multi config section](Config_Reference.md#probe_g38_multi)
+is defined.
+
+Multiple `probe_G38_multi` sections may be defined in order to
+configure several independent probes. The commands below take a
+`PROBE_NAME` parameter that selects the section to use.
+
+If no plain `[probe_G38]` section is configured, then the first
+`probe_G38_multi` section registers the plain `G38.2`-`G38.5` and
+`QUERY_PROBE` commands documented above. Those commands then operate on
+one of the configured probes, chosen in this order:
+
+1. The probe whose name matches the name of the active extruder.
+2. The probe selected with `SET_PROBE_G38`.
+3. The first probe defined in the config file.
+
+The plain `[probe_G38]` section always takes precedence over that
+fallback: if it is configured, then `G38.2`-`G38.5` and `QUERY_PROBE`
+always use the probe that `[probe_G38]` defines, and the multi-probe
+commands below must be used to reach the other probes.
+
+#### QUERY_PROBE_MUX
+`QUERY_PROBE_MUX PROBE_NAME=<name>`: Report the current state of the
+probe pin of the named probe, for example `probe_<name>: TRIGGERED`
+or `probe_<name>: open`. As with `[probe_G38]`, every named probe is
+also listed by QUERY_ENDSTOPS, M119, and the `query_endstops/status`
+webhook, under its `probe_<name>` name.
+
+#### SET_PROBE_G38
+`SET_PROBE_G38 PROBE_NAME=<name>`: Select the named probe as the probe
+used by the plain `G38.2`-`G38.5` and `QUERY_PROBE` commands, unless
+the name of the active extruder matches one of the configured probes.
+
+#### MULTIPROBE_TOWARD / MULTIPROBE_TOWARD_NOERROR
+`MULTIPROBE_TOWARD PROBE_NAME=<name> [X<pos>] [Y<pos>] [Z<pos>]
+[F<speed>]`: Probe toward the workpiece with the named probe and abort
+the move if the probe does not trigger. This is the `PROBE_NAME`
+scoped equivalent of `G38.2`.
+`MULTIPROBE_TOWARD_NOERROR` behaves like `MULTIPROBE_TOWARD`, but does
+not abort the move if the probe does not trigger, like `G38.3`.
+
+#### MULTIPROBE_AWAY / MULTIPROBE_AWAY_NOERROR
+`MULTIPROBE_AWAY PROBE_NAME=<name> [X<pos>] [Y<pos>] [Z<pos>]
+[F<speed>]`: Probe away from the workpiece with the named probe and
+abort the move if the probe does not clear. This is the `PROBE_NAME`
+scoped equivalent of `G38.4`. `MULTIPROBE_AWAY_NOERROR` behaves like
+`MULTIPROBE_AWAY`, but does not abort the move if the probe does not
+clear, like `G38.5`.
 
 ### [pwm_cycle_time]
 

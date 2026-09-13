@@ -1,0 +1,70 @@
+# F9 test: example CNC machine (K4CNC style) using the new extra axis
+# syntax: declarative [manual_stepper] A/B/C axes, a home-able extruder
+# driven as a tool axis and multiple named directional G38 probes.
+DICTIONARY atmega644p.dict
+CONFIG k4cnc.cfg
+
+# Bare G28 homes XYZ plus every home-able extra axis (A, B, C and E).
+G28
+M114
+
+# Extra axes take part in ordinary moves and position reporting.
+G1 X20 Y20 Z1 F3000
+G1 A5 B5 C5 F600
+M114
+GET_POSITION
+
+# A single extra axis may also be homed on its own.
+G28 A
+G1 A10 F600
+
+# Unlock the machine and set the origin at the current position.
+SET_ORIGIN
+G1 E5 F600
+
+# Tool axis moves, and combined XYZ + tool axis moves.
+G1 E-2 F600
+G1 E7 F600
+G1 X20 Y20 Z1
+G1 X25 Y25 E7.5
+
+# HOME_EXTRUDER homes a named extruder; HOME_ACTIVE_EXTRUDER the active
+# one. An uninverted endstop homes towards position_min.
+HOME_EXTRUDER EXTRUDER=extruder
+G1 E450 F600
+HOME_ACTIVE_EXTRUDER
+G1 E5 F600
+
+# M211 S0 disables the soft limits, so the axis may be moved past
+# position_max while it is disabled.
+M211 S0
+G1 E3001 F600
+M211 S1
+G1 E0 F600
+
+# The probe named after the active extruder is used by the ordinary G38
+# commands, so no explicit probe selection is needed here.
+QUERY_PROBE
+G38.2 X80 F1500
+QUERY_PROBE
+
+# Explicitly named commands exercise each probe and all four modes.
+MULTIPROBE_TOWARD PROBE_NAME=extruder X=90 F=1500
+MULTIPROBE_TOWARD_NOERROR PROBE_NAME=axis_probe Y=90 F=1500
+MULTIPROBE_AWAY PROBE_NAME=extruder X=40 F=1500
+MULTIPROBE_AWAY_NOERROR PROBE_NAME=axis_probe Y=40 F=1500
+QUERY_PROBE_MUX PROBE_NAME=extruder
+QUERY_PROBE_MUX PROBE_NAME=axis_probe
+
+# Probes also show up in the endstop panel of a frontend, named after
+# their config section.
+QUERY_ENDSTOPS
+
+# SET_PROBE_G38 switches which probe the ordinary G38 commands use, but
+# the probe named after the active extruder takes precedence, so the
+# QUERY_PROBE below still reports "probe_extruder" (see
+# docs/Config_Reference.md).
+SET_PROBE_G38 PROBE_NAME=axis_probe
+G38.2 X120 F1500
+QUERY_PROBE
+G1 X20 Y20 Z20 F3000
