@@ -1,0 +1,10 @@
+# F2 negative test: homing an extra axis without travel limits.
+#
+# The B axis has an endstop but no position_min/position_max, so the homing
+# sweep cannot be bounded and G28 must reject the request.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_homing_nominmax.cfg
+SHOULD_FAIL
+
+# Bare G28 also homes the homeable extra axes.
+G28

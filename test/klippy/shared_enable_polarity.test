@@ -1,0 +1,7 @@
+# F6 negative test: shared enable pin must have consistent polarity.
+#
+# stepper_x uses !PD7 while stepper_y uses PD7, so klippy must refuse to
+# start with "Shared pin PD7 must have same polarity".
+DICTIONARY atmega2560.dict
+CONFIG shared_enable_polarity.cfg
+SHOULD_FAIL

@@ -1,0 +1,36 @@
+# F6 test: several steppers sharing one enable pin.
+#
+# Exercises the shared-enable reference counting: homing, per-stepper enable
+# control while other sharers still need the line, and auto re-enable on the
+# next movement after M84.
+DICTIONARY atmega2560.dict
+CONFIG shared_enable.cfg
+
+# Home XYZ; the three axis steppers drive the same enable pin.
+G28
+G1 X20 Y20 Z10 F3000
+
+# Home the shared-enable extra axis, then move it.
+G28 B
+G1 B7 F3000
+
+# Direct move on a manual stepper sharing the same enable pin.
+MANUAL_STEPPER STEPPER=a_stepper MOVE=5
+
+# Disabling one sharer must not release the pin while others are enabled.
+SET_STEPPER_ENABLE STEPPER="manual_stepper a_stepper" ENABLE=0
+SET_STEPPER_ENABLE STEPPER="manual_stepper a_stepper" ENABLE=1
+SET_STEPPER_ENABLE STEPPER="manual_stepper homing_stepper" ENABLE=0
+SET_STEPPER_ENABLE STEPPER="manual_stepper homing_stepper" ENABLE=1
+SET_STEPPER_ENABLE STEPPER=extruder ENABLE=0
+SET_STEPPER_ENABLE STEPPER=extruder ENABLE=1
+
+# M84 decrements every sharer; the next move must re-enable the line.
+M84
+MANUAL_STEPPER STEPPER=a_stepper MOVE=2
+
+GET_POSITION
+M114
+
+# Turning the motors off a second time must stay balanced.
+M84

@@ -26,21 +26,31 @@ class ProbeG38Multi(ProbeG38):
         gcode.register_mux_command(
             "SET_PROBE_G38", "PROBE_NAME", self.probe_name,
             self.cmd_SET_PROBE_G38, desc=self.cmd_SET_PROBE_G38_help)
-        if "G38.2" not in gcode.ready_gcode_handlers:
-            gcode.register_command("G38.2", self._cmd_G38_2,
-                                   when_not_ready=False,
-                                   desc=self.cmd_G38_2_help)
-            gcode.register_command("G38.3", self._cmd_G38_3,
-                                   when_not_ready=False,
-                                   desc=self.cmd_G38_3_help)
-            gcode.register_command("G38.4", self._cmd_G38_4,
-                                   when_not_ready=False,
-                                   desc=self.cmd_G38_4_help)
-            gcode.register_command("G38.5", self._cmd_G38_5,
-                                   when_not_ready=False,
-                                   desc=self.cmd_G38_5_help)
-            gcode.register_command("QUERY_PROBE", self._cmd_QUERY_PROBE,
-                                   desc=self.cmd_QUERY_PROBE_help)
+        # The plain G38 commands are shared with a [probe_G38] section, which
+        # always takes precedence over this fallback. Wait until every section
+        # has been loaded before claiming the still unclaimed commands, so that
+        # the configuration file order does not matter.
+        self.printer.register_event_handler("klippy:connect",
+                                            self._handle_connect)
+
+    def _handle_connect(self):
+        gcode = self.printer.lookup_object('gcode')
+        if "G38.2" in gcode.ready_gcode_handlers:
+            return
+        gcode.register_command("G38.2", self._cmd_G38_2,
+                               when_not_ready=False,
+                               desc=self.cmd_G38_2_help)
+        gcode.register_command("G38.3", self._cmd_G38_3,
+                               when_not_ready=False,
+                               desc=self.cmd_G38_3_help)
+        gcode.register_command("G38.4", self._cmd_G38_4,
+                               when_not_ready=False,
+                               desc=self.cmd_G38_4_help)
+        gcode.register_command("G38.5", self._cmd_G38_5,
+                               when_not_ready=False,
+                               desc=self.cmd_G38_5_help)
+        gcode.register_command("QUERY_PROBE", self._cmd_QUERY_PROBE,
+                               desc=self.cmd_QUERY_PROBE_help)
 
     def _all_probes(self):
         return [obj for name, obj in self.printer.lookup_objects(

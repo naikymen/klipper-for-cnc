@@ -1,0 +1,12 @@
+# F5 negative test: HOME_ACTIVE_EXTRUDER without a homeable active extruder.
+#
+# Only "extruder" has an endstop, so activating "extruder1" must make
+# HOME_ACTIVE_EXTRUDER reject the request instead of homing something else.
+DICTIONARY atmega2560.dict
+CONFIG homeable_extruder_error.cfg
+SHOULD_FAIL
+
+# Make the non-homeable extruder active.
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+
+HOME_ACTIVE_EXTRUDER

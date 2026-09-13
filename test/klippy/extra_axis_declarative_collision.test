@@ -1,0 +1,15 @@
+# F1 negative test: a declarative gcode_axis reserves its letter.
+#
+# Declarative axes are registered at connect time, so they must be visible
+# to the runtime collision check performed by MANUAL_STEPPER ... GCODE_AXIS=.
+# Here the C axis is released and then re-registered as A, which is already
+# taken by a_stepper.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_declarative.cfg
+SHOULD_FAIL
+
+# Release the declarative C axis.
+MANUAL_STEPPER STEPPER=c_stepper GCODE_AXIS=
+
+# "A" is still declared by a_stepper.
+MANUAL_STEPPER STEPPER=c_stepper GCODE_AXIS=A

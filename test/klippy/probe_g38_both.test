@@ -1,0 +1,47 @@
+# F10 test: a plain [probe_G38] alongside named [probe_G38_multi] probes.
+#
+# Both sections may share one configuration file in any order. The plain
+# section always owns the ordinary G38.2-G38.5 and QUERY_PROBE commands, while
+# the named probes keep their own mux commands.  SET_PROBE_G38 only redirects
+# the ordinary commands when no plain section owns them, so here it must
+# remain inert.
+#
+# The command sequence below is run twice, once for each section order.
+DICTIONARY atmega2560.dict
+
+# Home the machine and set a baseline feedrate.
+G28
+G1 F3000
+
+# Move to a known position.
+G1 X50 Y50 Z10
+
+# Ordinary probing goes to the plain [probe_G38] endstop.
+G38.2 X90 F1500
+QUERY_PROBE
+
+# The named probes still answer their own mux commands.
+MULTIPROBE_TOWARD PROBE_NAME=left X=100 F=1500
+MULTIPROBE_AWAY_NOERROR PROBE_NAME=right X=40 F=1500
+QUERY_PROBE_MUX PROBE_NAME=left
+QUERY_PROBE_MUX PROBE_NAME=right
+
+# All three probes are visible to QUERY_ENDSTOPS.
+QUERY_ENDSTOPS
+
+# Selecting a named probe must remain inert for the ordinary commands while a
+# plain section owns them.
+SET_PROBE_G38 PROBE_NAME=right
+G38.3 Y90 F1500
+QUERY_PROBE
+SET_PROBE_G38 PROBE_NAME=left
+G38.4 Z10 F1500
+G38.5 Y40 F1500
+
+# Confirm the machine still moves normally after probing.
+G1 X20 Y20 Z20 F3000
+
+# The named probes are listed before the plain section in probe_g38_both.cfg
+# and after it in probe_g38_both_single_first.cfg.
+CONFIG probe_g38_both.cfg
+CONFIG probe_g38_both_single_first.cfg
