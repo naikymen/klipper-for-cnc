@@ -1662,12 +1662,28 @@ is enabled (also see the [Skew Correction](Skew_Correction.md) guide).
 module with measurements (in mm) taken from a calibration print.  One
 may enter measurements for any combination of planes, planes not
 entered will retain their current value. If `CLEAR=1` is entered then
-all skew correction will be disabled.
+all skew correction will be disabled. A new skew takes effect for
+every following move, including relative moves; the position of the
+tool is not changed, so the logical coordinates reported afterwards
+are re-derived from it.
+
+#### SET_SKEW_FACTORS
+`SET_SKEW_FACTORS [XY=<factor>] [XZ=<factor>] [YZ=<factor>]
+[CLEAR=<0|1>]`: Configures the [skew_correction] module with skew
+factors, that is, with the tangents of the skew angles themselves
+rather than with measurements of a calibration print. This is useful
+when the angles are already known, for example from an
+orthogonal-axis-compensation tool or from a CAD model. One may enter
+factors for any combination of planes, planes not entered will retain
+their current value. If `CLEAR=1` is entered then all skew correction
+will be disabled. The factors may also be set through a
+`[skew_correction <name>]` config section and loaded with
+`SKEW_PROFILE LOAD`, which takes the same values.
 
 #### GET_CURRENT_SKEW
 `GET_CURRENT_SKEW`: Reports the current printer skew for each plane in
 both radians and degrees. The skew is calculated based on parameters
-provided via the `SET_SKEW` gcode.
+provided via the `SET_SKEW` or `SET_SKEW_FACTORS` gcode.
 
 #### CALC_MEASURED_SKEW
 `CALC_MEASURED_SKEW [AC=<ac_length>] [BD=<bd_length>]

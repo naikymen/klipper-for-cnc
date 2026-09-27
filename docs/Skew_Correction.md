@@ -51,6 +51,24 @@ You may also add measurements for XZ and YZ to the gcode:
 SET_SKEW XY=140.4,142.8,99.8 XZ=141.6,141.4,99.8 YZ=142.4,140.5,99.5
 ```
 
+If you already know the skew angles, for example from an
+orthogonal-axis-compensation tool or from a CAD model, you can set the
+factors directly with `SET_SKEW_FACTORS` and skip the calibration print.
+The factors are the tangents of the angles:
+
+```
+SET_SKEW_FACTORS XY=0.012 XZ=0.004 YZ=-0.008
+```
+
+As with `SET_SKEW`, planes you do not name keep their current value and
+`SET_SKEW_FACTORS CLEAR=1` disables all skew correction.
+
+Both commands change the correction for every following move without
+moving the tool, so the actual position of the tool is kept and the
+logical coordinates read back from it are re-derived.  This applies to
+relative moves as well, which is why a correction is applied to the
+machine even if the following `G1` only moves one axis.
+
 The `[skew_correction]` module also supports profile management in a manner
 similar to `[bed_mesh]`.  After setting skew using the `SET_SKEW` gcode,
 you may use the `SKEW_PROFILE` gcode to save it:

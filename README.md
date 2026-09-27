@@ -312,7 +312,7 @@ as toolhead axes instead, so most of the configuration syntax changed:
 | `[extruder_home <name>]` section per home-able extruder | Removed. Adding `endstop_pin` (plus `position_endstop` and `position_max`) to `[extruder]` is enough |
 | `MULTIPROBE2 / 3 / 4 / 5 PROBE_NAME=...` | `MULTIPROBE_TOWARD`, `MULTIPROBE_TOWARD_NOERROR`, `MULTIPROBE_AWAY`, `MULTIPROBE_AWAY_NOERROR`, each with `PROBE_NAME=...` |
 | `[probe_G38]` / `[probe_G38_multi <name>]` with `z_offset` | Same sections, without `z_offset`. `recovery_time` is the dwell before the probing move, not a slow approach |
-| `GET_STATUS_MSG`, `manual_spinner`, `pipettin.py`, `QUERY_HX71`, `SET_SKEW_FACTORS`, extended G-Code help | Not ported yet. Each one is tracked as `S1` - `S8` in [docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md) |
+| `GET_STATUS_MSG`, `manual_spinner`, `pipettin.py`, `QUERY_HX71`, extended G-Code help | Not ported yet. Each one is tracked as `S1` - `S8` in [docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md) |
 | `min_extrude_temp: -273.15` (and negative `min_temp`) | Rejected. Heater minimums are clamped to `min_temp`, so use `min_temp: 0` with `min_extrude_temp: 0` to allow cold extrusion moves |
 | Absolute extruder coordinates were hardcoded | Opt-in: `[printer] tool_change_e_reset: False` and `relative_e_restore: False`, plus `[extruder] symmetric_speed_limits: True` |
 | `M114` / `GET_POSITION` reported `X Y Z A B C E` | Reports `X Y Z E A B C`, so the `X Y Z E` prefix keeps its upstream meaning |
@@ -382,8 +382,7 @@ original Klipper.
   [docs/CNC_Motion_Recovery.md](docs/CNC_Motion_Recovery.md).
 - The secondary changes of the old branch (`S1` - `S8` in the roadmap):
   `manual_spinner`, the `pipettin.py` helper, `QUERY_HX71`, extended G-Code
-  help, direct skew-factor commands, extra status fields, branding, and the
-  old test README.
+  help, extra status fields, branding, and the old test README.
 
 ---
 

@@ -1,0 +1,65 @@
+# R1 test: SET_SKEW_FACTORS sets skew correction factors directly.
+#
+# Legacy evidence: on `develop` the command stored the raw `gcmd.get()`
+# string into the factor attribute, so the next move raised a TypeError, and
+# it rebuilt the transform return values as a four element list, regressing
+# the general `pos[2:]` the upstream code already had (see
+# test/unit/test_skew_correction.py for both).  This fixture pins the
+# behaviour a user sees: a factor given directly must take effect on the next
+# move, must leave the planes it does not name alone, and CLEAR must undo it.
+#
+# Every move below names all three axes, so an assertion can never pass by
+# accident because a coordinate was inherited from an earlier position.
+DICTIONARY atmega2560.dict
+CONFIG skew_correction_factors.cfg
+
+# With no factor set the transform is the identity, which is the baseline
+# every later assertion is compared against.
+G28
+G90
+G1 X40 Y40 Z0 F600
+ASSERT_SKEW_POSITION GX=40 GY=40 GZ=0 TX=40 TY=40 TZ=0
+
+# A factor given directly is applied to the next move.  With xy_factor=0.1 a
+# logical position of X50 Y50 measures X = 50 - 50 * 0.1 = 45 on the machine,
+# while Y and Z are untouched.
+SET_SKEW_FACTORS XY=0.1
+GET_CURRENT_SKEW
+G1 X50 Y50 Z0 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=0 TX=45 TY=50 TZ=0
+
+# A second call only changes the plane it names: xz_factor=0.05 adds another
+# -10 * 0.05 to X, and the XY factor from the call above is still in effect.
+SET_SKEW_FACTORS XZ=0.05
+G1 X50 Y50 Z10 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=10 TX=44.5 TY=50 TZ=10
+
+# CLEAR resets every plane, whichever ones were set.
+SET_SKEW_FACTORS CLEAR=1
+G1 X50 Y50 Z0 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=0 TX=50 TY=50 TZ=0
+
+# The factors set here are the same numbers the profile machinery stores, so
+# a saved profile must reproduce the correction.
+SET_SKEW_FACTORS YZ=0.02
+SKEW_PROFILE SAVE=factor_test
+SET_SKEW_FACTORS CLEAR=1
+G1 X50 Y50 Z20 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=20 TX=50 TY=50 TZ=20
+SKEW_PROFILE LOAD=factor_test
+G1 X50 Y50 Z40 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=40 TX=50 TY=49.2 TZ=40
+GET_CURRENT_SKEW
+
+# SET_SKEW takes printed-object measurements instead of factors (the numbers
+# are the example in docs/Skew_Correction.md, which measure xy_skew as
+# -0.016951).  The physical position of the tool is what the machine really
+# has, so applying a new transform re-derives the logical position from it: the
+# move above left the toolhead at X50 Y49.2 Z40, which the new factors read as
+# X = 50 + 49.2 * -0.016951 = 49.166024.  The yz factor from the loaded profile
+# is still in effect, since SET_SKEW only names XY here.
+SET_SKEW XY=140.4,142.8,99.8
+ASSERT_SKEW_POSITION GX=49.166024 GY=50 GZ=40 TX=50 TY=49.2 TZ=40
+G1 X50 Y50 Z0 F600
+ASSERT_SKEW_POSITION GX=50 GY=50 GZ=0 TX=50.847537 TY=50 TZ=0
+M84

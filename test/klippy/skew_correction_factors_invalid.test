@@ -1,0 +1,12 @@
+# R1 test: SET_SKEW_FACTORS rejects a non-finite factor.
+#
+# `gcmd.get_float()` parses with `float()`, so "nan" and "inf" reach the
+# command without complaint even though a NaN factor silently poisons every
+# later transform (the position becomes NaN and the printer is unusable
+# until a restart).  The command must refuse them instead.
+DICTIONARY atmega2560.dict
+CONFIG skew_correction_factors.cfg
+SHOULD_FAIL
+
+G28
+SET_SKEW_FACTORS XY=nan

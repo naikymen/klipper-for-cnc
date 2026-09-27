@@ -38,6 +38,8 @@ class PrinterSkew:
                                desc=self.cmd_CALC_MEASURED_SKEW_help)
         gcode.register_command('SET_SKEW', self.cmd_SET_SKEW,
                                desc=self.cmd_SET_SKEW_help)
+        gcode.register_command('SET_SKEW_FACTORS', self.cmd_SET_SKEW_FACTORS,
+                               desc=self.cmd_SET_SKEW_FACTORS_help)
         gcode.register_command('SKEW_PROFILE', self.cmd_SKEW_PROFILE,
                                desc=self.cmd_SKEW_PROFILE_help)
     def _handle_connect(self):
@@ -100,20 +102,59 @@ class PrinterSkew:
             self._update_skew(0., 0., 0.)
             return
         planes = ["XY", "XZ", "YZ"]
-        for plane in planes:
+        factors = [self.xy_factor, self.xz_factor, self.yz_factor]
+        found = False
+        for i, plane in enumerate(planes):
             lengths = gcmd.get(plane, None)
-            if lengths is not None:
-                try:
-                    lengths = lengths.strip().split(",", 2)
-                    lengths = [float(l.strip()) for l in lengths]
-                    if len(lengths) != 3:
-                        raise Exception
-                except Exception:
-                    raise gcmd.error(
-                        "skew_correction: improperly formatted entry for "
-                        "plane [%s]\n%s" % (plane, gcmd.get_commandline()))
-                factor = plane.lower() + '_factor'
-                setattr(self, factor, calc_skew_factor(*lengths))
+            if lengths is None:
+                continue
+            try:
+                lengths = lengths.strip().split(",", 2)
+                lengths = [float(l.strip()) for l in lengths]
+                if len(lengths) != 3:
+                    raise Exception
+            except Exception:
+                raise gcmd.error(
+                    "skew_correction: improperly formatted entry for "
+                    "plane [%s]\n%s" % (plane, gcmd.get_commandline()))
+            factors[i] = calc_skew_factor(*lengths)
+            found = True
+        if not found:
+            return
+        # Update all three factors at once and refresh last_position, exactly as
+        # SET_SKEW_FACTORS does: changing the transform without the refresh
+        # leaves the next move, and any move derived from it, computed from a
+        # stale position.
+        self._update_skew(*factors)
+    cmd_SET_SKEW_FACTORS_help = "Set skew correction factors from known angles"
+    def cmd_SET_SKEW_FACTORS(self, gcmd):
+        # Set the correction factors themselves, for a user who already knows
+        # the angles (an orthogonal axis compensation tool, a CMM or CAD
+        # measurement) and does not want to invent three lengths for
+        # SET_SKEW.  Unnamed planes keep their current factor.
+        if gcmd.get_int("CLEAR", 0):
+            self._update_skew(0., 0., 0.)
+            return
+        planes = ["XY", "XZ", "YZ"]
+        factors = [self.xy_factor, self.xz_factor, self.yz_factor]
+        found = False
+        for i, plane in enumerate(planes):
+            factor = gcmd.get_float(plane, None)
+            if factor is None:
+                continue
+            if not math.isfinite(factor):
+                raise gcmd.error(
+                    "skew_correction: skew factor for plane [%s] is not a "
+                    "finite number\n%s" % (plane, gcmd.get_commandline()))
+            factors[i] = factor
+            found = True
+        if not found:
+            raise gcmd.error(
+                "skew_correction: no skew factor given, expected XY, XZ or "
+                "YZ\n%s" % (gcmd.get_commandline()))
+        # Update all three factors at once, so that the transform is never
+        # applied with a mixture of the old and the new skew.
+        self._update_skew(*factors)
     cmd_SKEW_PROFILE_help = "Profile management for skew_correction"
     def cmd_SKEW_PROFILE(self, gcmd):
         if gcmd.get('LOAD', None) is not None:

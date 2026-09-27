@@ -160,7 +160,7 @@ the commit author (791 `develop` commits use the placeholder
 | --- | --- | --- |
 | S1 | Reimplement as a new feature (F11); port nothing | The 622-line `manual_spinner.py` is an unreferenced prototype that hand-rolls its own trapq, reactor timer and `threading.Queue`. Current `motion_queuing.register_flush_callback(can_add_trapq=True)` provides the primitive it was emulating, and the file breaks the python2 import test (`klippy.py --import-test` walks every extra) |
 | S2 | Defer | Application-specific coordinate-file helper; python3-only; its help string is a copy of the probe help |
-| S3 | Port, with two legacy defects fixed | `develop` stores the raw `gcmd.get()` **string** into `self.xy_factor`, so the next move raises `TypeError`, and it rebuilds `calc_skew`'s return as `[skewed_x, skewed_y, pos[2], pos[3]]`, regressing the general `pos[2:]` that `master` already has. See R1 |
+| S3 | Port, with two legacy defects fixed | `develop` stores the raw `gcmd.get()` **string** into `self.xy_factor`, so the next move raises `TypeError`, and it rebuilds `calc_skew`'s return as `[skewed_x, skewed_y, pos[2], pos[3]]`, regressing the general `pos[2:]` that `master` already has. Landed as R1 |
 | S4 | Park | `QUERY_HX71` drives the private `_process_batch`, stealing samples from `batch_bulk`; the correct API is `add_client()`. It also overlaps the existing `LOAD_CELL_READ`/`LOAD_CELL_DIAGNOSTIC` commands |
 | S5 | Do not port the webhook change; add the missing help strings instead | `gcode.get_status()` already returns `{'commands': {cmd: {'help': ...}}}` for every registered command, and `register_endpoint` raises on a duplicate path, so an extra could not override `gcode/help` anyway. The real gap is ~27 registered commands with no help string |
 | S6 | Port as a new extra | `GET_STATUS_MSG` is a three-line `toolhead.py` helper on `develop`; it can live in an extra with zero core edits |
@@ -184,7 +184,7 @@ Ordered by value against effort, extras-first:
 
 | Rank | Item | Size | Notes |
 | --- | --- | --- | --- |
-| R1 | S3 skew factors | S | Extras-only, low risk |
+| R1 | S3 skew factors | S | Extras-only, low risk (landed, see decision log) |
 | R2 | S6 `GET_STATUS_MSG` | XS | New extra, zero core edits |
 | R3 | S5 missing help strings | S | Skip the webhook change |
 | R4 | N1 per-extruder positions | S | Needs one core helper |
@@ -348,13 +348,16 @@ triggered prior to movement" cannot be raised; with file output, `MCU_trsync`
 and `MCU_endstop` report a successful trigger and `query_endstop()` returns
 `0`, so endstop pins are never simulated and "No trigger on ... after full
 movement" cannot be raised either. Features whose contract is arithmetic (F8's
-PID terms) or object dispatch (F3/F4's probe ownership and selection) therefore
-get a stdlib `unittest` module under `test/unit/`, which instantiates the class
-under test against small stubs:
+PID terms), object dispatch (F3/F4's probe ownership and selection), or command
+error paths and the order in which state is updated (R1's skew factors)
+therefore get a stdlib `unittest` module under `test/unit/`, which instantiates
+the class under test against small stubs:
 
 ```shell
 python3 test/unit/test_heaters.py
 python3 test/unit/test_probe_g38.py
+python3 test/unit/test_extruder_no_heater.py
+python3 test/unit/test_skew_correction.py
 ```
 
 These are a separate entry point on purpose: nothing in `scripts/ci-install.sh`
@@ -506,6 +509,10 @@ needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
 | 2026-09-27 | F10 documents, but does not soften, the sections that name the extruder as a *heater* | `[verify_heater extruder]` and `[heater_fan ...] heater: extruder` both look the heater up by section name, so on a heater-less extruder they fail with `Unknown heater 'extruder'` (`heater_fan` at `klippy:ready`, measured as `Internal error during ready callback: Unknown heater 'extruder'`; `verify_heater` inside `handle_connect`, which the test harness's `-i` debug output short-circuits, so that one is documented from the code and cannot be a fixture). Making those sections accept a heater-less extruder would mean teaching them to tolerate a fake heater, which is the opposite of the feature's purpose |
 | 2026-09-27 | F10's fixtures assert through guard macros, because the batch harness always passes `-i` and can only judge exit status | With `debugoutput` set `Heater.can_extrude` is always True and `NEED_ACK` is False, so a fixture can neither prove the extrusion gate nor read a console message; `ASSERT_HEATERLESS_EXTRUDER_STATUS`, `ASSERT_HEATERLESS_EXTRUDER1` and `ASSERT_TARGET_IGNORED` follow the R7 `ASSERT_EXTRA_AXIS_INDICES` idiom and were shown to be non-vacuous by inverting each condition in `/tmp` copies (all three fixtures then exit 255). The two `SHOULD_FAIL` half-configuration cases live in one file using the trailing consecutive-`CONFIG` idiom from `probe_g38_both.test` |
 | 2026-09-27 | The S1 spinner, scheduled as F10 by the audit, is relabelled F11 | The user's F10 request (optional heating) took the next free roadmap ID, and R5 already described the spinner by that slot. The audit rows and the ranked table follow the new name. |
+| 2026-09-27 | R1 ports `SET_SKEW_FACTORS` as its own command that assigns all three factors and calls `_update_skew()`, instead of copying `develop`'s `use_lengths` flag on `cmd_SET_SKEW` | `develop` refactored `SET_SKEW` into `cmd_SET_SKEW(self, gcmd, use_lengths=True)` and registered a second command that delegates with `use_lengths=False`; the flag changed only two lines, so the port keeps `cmd_SET_SKEW`'s measurement parsing and error text as they were and gives the factors command its own four-line body. The `_update_skew()` call is not cosmetic: it is what re-derives `gcode_move.last_position` from the new transform, and `last_position` is the base for both relative moves and absolute `G92`/homing updates, so without it the next move happens at the wrong place |
+| 2026-09-27 | R1 rejects non-finite skew factors, though `gcmd.get_float()` accepts `nan`/`inf` | `GCodeCommand.get_float` parses with `parser=float`, and `float('nan')`/`float('inf')` succeed, so `SET_SKEW_FACTORS XY=nan` reaches the assignment and then poisons `calc_skew`, making every position NaN for the rest of the session with no way back except a restart. The command raises `skew_correction: skew factor for plane [XY] is not a finite number` instead. Pinned by `test/klippy/skew_correction_factors_invalid.test` (a `SHOULD_FAIL` run) and by `test_non_finite_factors_are_rejected`, which also asserts that nothing is assigned and `last_position` is not reset |
+| 2026-09-27 | R1 also fixes `cmd_SET_SKEW`'s missing `_update_skew()` | `SET_SKEW` assigned the factors plane by plane with `setattr` and never refreshed `last_position`, so `SET_SKEW` running between an absolute and a relative move shifted the machine by the factor change: `last_position` still described the old transform while the next move was computed with the new one. The fork's other two factor-changing paths (`SET_SKEW CLEAR=1` and `SKEW_PROFILE LOAD`) already call `_update_skew()`, so the missing call is an inconsistency in upstream rather than a documented behavior (the `develop` port kept it unchanged), and the same user-visible bug as the one the ported command had to avoid. Upstream's parse errors and its silent no-op for a bare `SET_SKEW` (no plane named) are kept; the cost is the deliberate change that a `SET_SKEW` which does name a plane now re-derives the logical position from the physical one, exactly as `SET_SKEW CLEAR=1` always did, instead of leaving it stale. Pinned by `test_set_skew_refreshes_last_position` (which fails at `reset_count == 0` against the old code) and by the trailing section of `test/klippy/skew_correction_factors.test`, where the assertion reports the stale `X50` instead of the refreshed `X49.166024`. The rewrite also collects the parsed planes before assigning any of them, so a malformed second plane no longer leaves the first one applied (covered by `test_set_skew_rejected_measurements_change_nothing`) |
+| 2026-09-27 | R1's fixture asserts both the logical and the transformed position through a guard macro, and the two legacy defects are pinned in the unit test rather than the fixture | The harness judges exit status only, so the factor arithmetic is checked with `ASSERT_SKEW_POSITION`, which compares `printer.gcode_move.position` (the requested position, authoritative for the next move) against `printer['toolhead'].position` (where the transform sent the machine) and raises on either mismatch; each move in the fixture names X, Y and Z so no assertion can pass on an inherited coordinate. Inverting one expectation in a `/tmp` copy made the run exit 255, and dropping either `+ pos[2:]` or the `math.isfinite` guard makes `test/unit/test_skew_correction.py` fail, so the checks are load-bearing |
 
 ## Per-slice handoff template
 
