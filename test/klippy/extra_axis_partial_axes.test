@@ -1,0 +1,16 @@
+# R7 regression test: an incomplete primary axis set must fail fast
+# instead of silently re-indexing the declared extra axis.
+#
+# Legacy evidence: on `develop` the toolhead built its axis map from the
+# axes found in the config, so an "XYA" configuration (X and Y but no Z)
+# associated the *extra* axis A with the index of the unconfigured Z axis
+# (fixed there by f557a14b).  With the current `extra_axes` design the
+# primary axes always occupy indices 0-2 and extra axes start at index 4,
+# so the mis-association is structurally impossible AND the incomplete
+# primary set is rejected outright with an error naming the missing
+# section.  This fixture pins that fail-fast behaviour: no configuration
+# may be accepted with fewer than three primary axes, because such a
+# configuration would leave an axis slot unowned.
+DICTIONARY atmega2560.dict
+CONFIG extra_axis_partial_axes.cfg
+SHOULD_FAIL

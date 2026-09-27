@@ -142,6 +142,54 @@ the user before spending substantial implementation effort.
 | S7 | AVR compatibility fixes and requirement changes | Verify whether already present upstream; do not port blindly |
 | S8 | Branding, funding, issue templates, install scripts, and old images | Defer until functional compatibility and release preparation |
 
+### S1-S8 audit outcome
+
+The S1-S8 items were audited against both `develop` and `master` after F9. The
+merge base of `master...develop` is `413ff19e` (2025-04-17) while `master`
+carries commits up to 2026-09-09 and `develop` only up to 2026-05-18, so
+`develop` is chronologically *older*: most per-file drift is upstream progress,
+not fork work. Every verdict below was decided per file or per hunk, never from
+the commit author (791 `develop` commits use the placeholder
+`naikymen <you@example.com>`).
+
+| ID | Verdict | Evidence |
+| --- | --- | --- |
+| S1 | Reimplement as a new feature (F10); port nothing | The 622-line `manual_spinner.py` is an unreferenced prototype that hand-rolls its own trapq, reactor timer and `threading.Queue`. Current `motion_queuing.register_flush_callback(can_add_trapq=True)` provides the primitive it was emulating, and the file breaks the python2 import test (`klippy.py --import-test` walks every extra) |
+| S2 | Defer | Application-specific coordinate-file helper; python3-only; its help string is a copy of the probe help |
+| S3 | Port, with two legacy defects fixed | `develop` stores the raw `gcmd.get()` **string** into `self.xy_factor`, so the next move raises `TypeError`, and it rebuilds `calc_skew`'s return as `[skewed_x, skewed_y, pos[2], pos[3]]`, regressing the general `pos[2:]` that `master` already has. See R1 |
+| S4 | Park | `QUERY_HX71` drives the private `_process_batch`, stealing samples from `batch_bulk`; the correct API is `add_client()`. It also overlaps the existing `LOAD_CELL_READ`/`LOAD_CELL_DIAGNOSTIC` commands |
+| S5 | Do not port the webhook change; add the missing help strings instead | `gcode.get_status()` already returns `{'commands': {cmd: {'help': ...}}}` for every registered command, and `register_endpoint` raises on a duplicate path, so an extra could not override `gcode/help` anyway. The real gap is ~27 registered commands with no help string |
+| S6 | Port as a new extra | `GET_STATUS_MSG` is a three-line `toolhead.py` helper on `develop`; it can live in an extra with zero core edits |
+| S7 | Closed - already upstream | Both fork AVR commits are present verbatim in `master` (`073fdede` in `src/avr/adc.c`, `b593a966` in `src/avr/main.c`); all other `src/avr/` drift is `master` being newer (lgt8f328p, `AVR_BUILD_MCU`, `ADC_MAX`). The fork's `none`-kinematics `set_position` patch is also superseded by upstream's `extra_axes` plus `klippy/kinematics/none.py` |
+| S8 | Defer | 17 branding, funding and install commits with no functional content |
+
+Two further findings from the same sweep:
+
+- `5a125ea7` (gcode_macro literal-parsing error) is already in `master`
+  (`klippy/extras/gcode_macro.py`), and `f557a14b` (axis-ID parsing for a
+  partial axis set) is structurally superseded by `extra_axes` - recorded as
+  the R7 regression fixture instead of a port.
+- **N1**: `develop` also adds per-extruder `extruder_positions` to the
+  `toolhead` status. `master` has only `extruder.last_position`, and the legacy
+  version calls the fork-only `printer.lookup_extruders()`, which does not exist
+  on `master`; a port needs a core helper. Not yet scheduled.
+
+### Ranked implementation order for the audited items
+
+Ordered by value against effort, extras-first:
+
+| Rank | Item | Size | Notes |
+| --- | --- | --- | --- |
+| R1 | S3 skew factors | S | Extras-only, low risk |
+| R2 | S6 `GET_STATUS_MSG` | XS | New extra, zero core edits |
+| R3 | S5 missing help strings | S | Skip the webhook change |
+| R4 | N1 per-extruder positions | S | Needs one core helper |
+| R5 | S1 spinner as F10 | M-L | New feature, not a port |
+| R6 | S4 `QUERY_HX71` | S | Parked |
+| R7 | N3 XYA-without-Z fixture | XS | Regression guard, see below |
+| R8 | S2, S8 | - | Defer |
+| R9 | S7 | - | No work |
+
 ## Motion fault recovery and reversibility (design proposal)
 
 The audit above stops at feature parity. Separately, an investigation of
@@ -437,6 +485,9 @@ needs the `numpy` and `scipy` Python modules in the interpreter running klippy.
 | 2026-09-12 | Documented two traps the new fixtures ran into, because both are user-visible | (1) `SET_STEPPER_ENABLE`/`MANUAL_STEPPER` address a manual stepper by the mux key `manual_stepper <name>`, which contains a space, so it must be quoted: `SET_STEPPER_ENABLE STEPPER="manual_stepper a_stepper" ENABLE=1`. Unquoted, klippy rejects the value with "The value ... is not valid for STEPPER. Did you mean ...?" and the run fails. (2) `position_min`/`position_max` on `[extruder]`/`[extruder1]` are only valid when that extruder is home-able (has `endstop_pin`); otherwise `check_unused_options` fails with `Option 'position_min' is not valid in section 'extruder'`. The error branch for `HOME_ACTIVE_EXTRUDER` needs one homeable and one non-homeable extruder for this reason |
 
 | 2026-09-15 | Closed the review questions left open by F9 and the coverage hardening pass: the commented-out `[manual_stepper a_stepper]` template **stays** in `config/generic-cnc-shield-v3.0.cfg`, the F8/F3/F4 unit tests **stay** in `test/unit/` unwired to CI, and `samples` on `[temperature_fan]` is confirmed **not** a gap | User review. These were the only items the slices left implicit. The shield template is the sole in-repo example of declaring an extra axis directly instead of routing it through the extruder module, so removing it would leave the fork's second extra-axis style undocumented; the unit tests run only when invoked by hand (see "Unit tests for arithmetic"), which was accepted knowingly; and the `samples` question was settled from the code in the F8 `ControlPID` row. The `k4cnc` fixture name was already settled in F9 |
+
+| 2026-09-15 | R7: an incomplete primary axis set is pinned by a `SHOULD_FAIL` fixture instead of by porting `f557a14b` | `f557a14b` fixed an axis-ID parsing bug on `develop`, where an "XYA" configuration associated the declared extra axis with the unconfigured Z slot. With the current `extra_axes` design the primary axes own indices 0-2 and extra axes start at 4, so the mis-association cannot happen; and `CartKinematics` requires `[stepper_x]`, `[stepper_y]` **and** `[stepper_z]` (as `corexy`/`corexz` do), so the incomplete configuration is refused at startup with `Option 'endstop_pin' in section 'stepper_z' must be specified`. `test/klippy/extra_axis_partial_axes.cfg`/`.test` records that fail-fast behaviour. Nothing was ported because there is no surviving defect to fix |
+| 2026-09-15 | R7: extra-axis global indices are assigned by registration order, so the fixture asserts the index *set* rather than a per-axis mapping | `ToolHead._build_extra_axes_status` maps `enumerate(self.extra_axes)` plus 3, and axes are appended by `add_extra_axis` from each extra's `klippy:connect`, so the axis declared **last** in the config can end up with a lower index - in `extra_axis_declarative.cfg` the first draft of the guard macro expected `A=4, B=5, C=6` and the fixture reported `a_stepper owns index 6`. The invariant that actually holds, and that would break if an extra axis ever took a primary slot, is that the three declared axes own distinct indices in 4-6. `test/klippy/extra_axis_declarative.cfg` gained the `ASSERT_EXTRA_AXIS_INDICES` guard macro, which uses the `{% if %}` + `{action_raise_error(...)}` idiom from `config/sample-macros.cfg` and reads `printer.toolhead.extra_axes`; the assertions run in `extra_axis_declarative.test` both before and after the runtime unregister/re-register cycle, and both print `extra axis indices OK: [4, 5, 6]` |
 
 ## Per-slice handoff template
 

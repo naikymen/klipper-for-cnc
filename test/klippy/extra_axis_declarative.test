@@ -22,11 +22,20 @@ G1 X25 Y25 A30 B5 C10
 GET_POSITION
 M114
 
+# Each declared axis must own a distinct global index in 4-6, i.e. it must
+# not have taken a primary axis slot (0-2) or the extruder slot (3).
+ASSERT_EXTRA_AXIS_INDICES
+
 # A declared axis can still be unregistered at runtime and re-registered.
 MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=
 G1 X15 Y15 Z5
 MANUAL_STEPPER STEPPER=a_stepper GCODE_AXIS=A
 G1 X20 Y20 A20
+
+# The indices must still be exactly 4-6 after that cycle: removing then
+# re-adding an axis must not leave a stale index behind, reuse a primary
+# slot, or collide with another extra axis.
+ASSERT_EXTRA_AXIS_INDICES
 
 # Motor off.
 M84
