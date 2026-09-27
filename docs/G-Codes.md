@@ -44,6 +44,13 @@ Klipper supports the following standard G-Code commands:
     reports the current state.
 - Get extruder temperature: `M105`
 - Set extruder temperature: `M104 [T<index>] [S<temperature>]`
+  - Note: On this fork, an extruder whose configuration has no
+    `heater_pin` has no heating hardware. `M104 S0` and `M109 S0` are
+    accepted and ignored on such an extruder, while a request for a
+    positive temperature reports an error unless that extruder sets
+    `require_heater` to False, in which case every heating request is
+    ignored. See the `[extruder]` section of the
+    [config reference](Config_Reference.md#extruder).
 - Set extruder temperature and wait: `M109 [T<index>] S<temperature>`
   - Note: M109 always waits for temperature to settle at requested
     value

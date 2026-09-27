@@ -1,0 +1,24 @@
+# F10 test: a heater-less extruder beside a normal heated extruder.
+#
+# Only the heated extruder may register a heater, so 'M104' keeps targeting
+# 'T0' and extrusion stays gated on the hotend temperature as before, while
+# the heater-less extruder needs no heater config of its own.  'M105'
+# reports both the hotend and the default temperature for the extruder
+# without a heater.
+DICTIONARY atmega2560.dict
+CONFIG extruder_no_heater_mixed.cfg
+
+ASSERT_HEATERLESS_EXTRUDER1
+
+# The heated extruder still takes a temperature request and reports it.
+M104 S200
+M105
+M109 S0
+M104 S0
+
+# The heater-less extruder takes a zero request and is extrudable.
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+G1 E5 F100
+M104 S0
+M105
+ASSERT_HEATERLESS_EXTRUDER1

@@ -138,6 +138,50 @@ homing_positive_dir: False
   This requires `[force_move] enable_force_move: True`, and it does not accept
   the extra axes.
 
+### Heater-less extruders
+
+The heating parameters of `[extruder]` (and `[extruder1]`, ...) are optional.
+An extruder with no `heater_pin` has no heating hardware, so it needs no
+`sensor_type`, `sensor_pin`, `control`, `pid_*`, `min_temp` or `max_temp`
+either. This is meant for syringe, paste and clay extruders, whose motor is
+driven as usual while the heater and thermistor pins stay free for other uses:
+
+```yaml
+[extruder]
+step_pin: PA4
+dir_pin: PA6
+enable_pin: !PA2
+microsteps: 16
+rotation_distance: 33.5
+nozzle_diameter: 0.500
+filament_diameter: 3.500
+# No heater_pin, sensor_type, control, min_temp, max_temp, ...
+```
+
+- Such an extruder has no minimum extrusion temperature, so it extrudes
+  immediately, and `M105`/`GET_POSITION` report its temperature as `0`.
+- It reports the same `temperature`/`target`/`power` status keys as a heated
+  extruder, so display frontends and macros need no special case. It is *not*
+  listed in `printer.heaters.available_heaters` or `available_sensors`, since
+  no heater or sensor is registered.
+- `M104 S0`, `M109 S0` and `TURN_OFF_HEATERS` are accepted and do nothing. A
+  request for a positive temperature is rejected with
+  `Extruder 'extruder' has no heater`, so that G-Code meant for a hotend is not
+  silently ignored.
+- Set `require_heater: False` to ignore positive temperature requests as well,
+  which lets one job run on machines with and without a heater.
+- The heating options are checked as a group: `heater_pin` must be provided
+  when any of them is set, so removing only `heater_pin` from an existing
+  configuration reports `Option 'heater_pin' must be specified in section
+  'extruder' because these heating options are set: ...` rather than failing
+  on an unrelated option.
+- Sections that *reference* the extruder as a heater still require one, so
+  remove them (or point them elsewhere) when the heater goes away:
+  `[verify_heater extruder]` and `[heater_fan ...] heater: extruder` both fail
+  at connect with `Unknown heater 'extruder'`. The same applies to
+  `PID_CALIBRATE`, `SET_HEATER_TEMPERATURE`, `TEMPERATURE_WAIT SENSOR=extruder`
+  and any macro that names the extruder as a heater.
+
 ### Directional probing: `G38.2` - `G38.5`
 
 The `[probe_G38]` section provides LinuxCNC-style directional probing with a

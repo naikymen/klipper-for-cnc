@@ -926,6 +926,11 @@ nozzle hotend along with the stepper controlling the extruder. See the
 See the [pressure advance guide](Pressure_Advance.md) for information
 on tuning pressure advance.
 
+The heater parameters are optional: an extruder with no `heater_pin`
+has no heating hardware (for example a syringe or paste extruder) and
+its heater and sensor pins stay free for other uses. See the
+`heater_pin` and `require_heater` descriptions below.
+
 ```
 [extruder]
 step_pin:
@@ -1019,10 +1024,24 @@ filament_diameter:
 #   This setting only applies if pressure_advance is non-zero. The
 #   default is 0.040 (40 milliseconds).
 #
-# The remaining variables describe the extruder heater.
-heater_pin:
+# The remaining variables describe the extruder heater. They are only
+# meaningful on an extruder that has one: if heater_pin is omitted, the
+# extruder has no heating hardware and setting any of them is a
+# configuration error.
+#heater_pin:
 #   PWM output pin controlling the heater. This parameter must be
-#   provided.
+#   provided when the extruder has a heater. If it is omitted then the
+#   extruder can move but not heat, and the heating commands that
+#   request a temperature are rejected (see require_heater).
+#require_heater: True
+#   Whether the extruder has to be able to heat to accept a heating
+#   command. This parameter only has an effect on an extruder with no
+#   heater_pin. The default is True, which reports an error when a
+#   command such as "M104 S200" asks a heater-less extruder to reach a
+#   temperature, and silently accepts "M104 S0". Set this to False when
+#   a heating command should be ignored instead, for example when a
+#   single print job or G-Code macro is meant to run on machines with
+#   and without a heater.
 #max_power: 1.0
 #   The maximum power (expressed as a value from 0.0 to 1.0) that the
 #   heater_pin may be set to. The value 1.0 allows the pin to be set
@@ -1036,10 +1055,10 @@ sensor_type:
 #   3950","Honeywell 100K 135-104LAG-J01", "NTC 100K MGB18-104F39050L32",
 #   "SliceEngineering 450", and "TDK NTCG104LH104JT1". See the
 #   "Temperature sensors" section for other sensors. This parameter
-#   must be provided.
+#   must be provided when the extruder has a heater.
 sensor_pin:
 #   Analog input pin connected to the sensor. This parameter must be
-#   provided.
+#   provided when the extruder has a heater.
 #pullup_resistor: 4700
 #   The resistance (in ohms) of the pullup attached to the thermistor.
 #   This parameter is only valid when the sensor is a thermistor. The
@@ -1050,7 +1069,7 @@ sensor_pin:
 #   is 1 seconds.
 control:
 #   Control algorithm (either pid or watermark). This parameter must
-#   be provided.
+#   be provided when the extruder has a heater.
 pid_Kp:
 pid_Ki:
 pid_Kd:
@@ -1096,7 +1115,7 @@ max_temp:
 #   will go into a shutdown state. This check can help detect some
 #   heater and sensor hardware failures. Set this range just wide
 #   enough so that reasonable temperatures do not result in an error.
-#   These parameters must be provided.
+#   These parameters must be provided when the extruder has a heater.
 ```
 
 ### [heater_bed]

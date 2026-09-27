@@ -176,10 +176,16 @@ class PrinterExtruder:
         self.printer = config.get_printer()
         self.name = config.get_name()
         self.last_position = 0.
-        # Setup hotend heater
+        # Setup hotend heater. Read the heater requirement before the check
+        # below so that the option is valid whether or not a heater exists
+        # (it only has an effect when there is no heater).
+        self.require_heater = config.getboolean('require_heater', True)
         pheaters = self.printer.load_object(config, 'heaters')
         gcode_id = 'T%d' % (extruder_num,)
-        self.heater = pheaters.setup_heater(config, gcode_id)
+        if config.get('heater_pin', None) is not None:
+            self.heater = pheaters.setup_heater(config, gcode_id)
+        else:
+            self.heater = DummyHeater(config, self.require_heater)
         # Setup kinematic checks
         self.nozzle_diameter = config.getfloat('nozzle_diameter', above=0.)
         filament_diameter = config.getfloat(
@@ -367,6 +373,60 @@ class PrinterExtruder:
         toolhead.flush_step_generation()
         toolhead.set_extruder(self, self.last_position)
         self.printer.send_event("extruder:activate_extruder")
+
+# Heater stand-in for an extruder that has no heating hardware (eg, a syringe
+# or paste extruder, where the heater and sensor pins are better used for
+# something else). It implements the part of the Heater interface that an
+# extruder can reach without the heater being registered with the 'heaters'
+# object, and keeps the reported status identical in shape to a real heater.
+class DummyHeater:
+    # Options that only configure heating, ie. the options documented for the
+    # heater and its sensor in the extruder config section. Their presence
+    # without a 'heater_pin' means the section is half configured, which is
+    # reported here because the heater code would otherwise fail on an
+    # unrelated option (it reads 'min_temp' before it reads 'heater_pin').
+    # 'sensor_pin' and 'pullup_resistor' are read by the sensor modules rather
+    # than by heaters.py; sensor options specific to a single sensor type (eg,
+    # 'resistor1') are left to the generic unused-option check.
+    heating_options = ('sensor_type', 'sensor_pin', 'pullup_resistor',
+                       'control', 'min_temp', 'max_temp', 'min_extrude_temp',
+                       'max_power', 'smooth_time', 'pwm_cycle_time',
+                       'max_delta', 'pid_Kp', 'pid_Ki', 'pid_Kd', 'samples')
+    def __init__(self, config, require_heater=True):
+        self.printer = config.get_printer()
+        self.name = config.get_name()
+        self.require_heater = require_heater
+        # There is no minimum extrusion temperature to wait for.
+        self.can_extrude = True
+        stray = [o for o in self.heating_options
+                 if config.get(o, None) is not None]
+        if stray:
+            raise config.error(
+                "Option 'heater_pin' must be specified in section '%s'"
+                " because these heating options are set: %s"
+                % (self.name, ', '.join(stray)))
+    # External commands
+    def get_name(self):
+        return self.name
+    def set_temp(self, degrees):
+        if not degrees:
+            # Accept 'M104 S0' silently, the same way an unconfigured
+            # T<index> is accepted by PrinterExtruder.cmd_M104
+            return
+        if not self.require_heater:
+            logging.info("%s: no heater - ignoring temperature request %.1f",
+                         self.name, degrees)
+            return
+        raise self.printer.command_error(
+            "Extruder '%s' has no heater" % (self.name,))
+    def get_temp(self, eventtime):
+        return 0., 0.
+    def check_busy(self, eventtime):
+        return False
+    def stats(self, eventtime):
+        return False, '%s: target=0 temp=0.0 pwm=0.000' % (self.name,)
+    def get_status(self, eventtime):
+        return {'temperature': 0., 'target': 0., 'power': 0.}
 
 # Dummy extruder class used when a printer has no extruder at all
 class DummyExtruder:

@@ -1,0 +1,12 @@
+# F10 test: a positive temperature request to a heater-less extruder.
+#
+# 'M104 S0' is a no-op on a heater-less extruder (see
+# extruder_no_heater.test), but asking for a positive temperature means
+# something is wrong with the configuration, so it must fail loudly rather
+# than silently do nothing.  The error message is:
+#   Extruder 'extruder' has no heater
+DICTIONARY atmega2560.dict
+CONFIG extruder_no_heater.cfg
+SHOULD_FAIL
+
+M104 S200

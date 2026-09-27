@@ -1,0 +1,23 @@
+# F10 test: 'require_heater: False' turns heating commands into no-ops.
+#
+# Same heater-less extruder as extruder_no_heater.cfg, but heating commands
+# for a positive temperature are ignored instead of being errors, so a
+# start script written for a heated machine can be reused unchanged.
+DICTIONARY atmega2560.dict
+CONFIG extruder_no_heater_ignored.cfg
+
+M104 S200
+M109 S250
+M400
+M105
+
+# The request must be ignored, not applied.
+ASSERT_TARGET_IGNORED
+
+# Extrusion and the remaining heating commands keep working.
+G1 E5 F100
+TURN_OFF_HEATERS
+M104 S0
+M109 S0
+M105
+ASSERT_TARGET_IGNORED

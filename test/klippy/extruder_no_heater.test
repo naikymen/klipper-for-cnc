@@ -1,0 +1,34 @@
+# F10 test: extruder sections without any heating hardware.
+#
+# A syringe extruder must be usable without declaring heater or sensor
+# pins: the printer starts, M105 answers, G1 E moves and extruder homing
+# all work, and the zero-temperature heater status both keeps the usual
+# status keys and registers no heater or sensor.  With a heater-less
+# extruder, a temperature request for zero is a no-op - only a request for
+# a positive temperature is an error (see extruder_no_heater_error.test),
+# so the no-op requests are exercised here.
+DICTIONARY atmega2560.dict
+CONFIG extruder_no_heater.cfg
+
+# M105 works even though no heater or sensor is registered at all.
+M105
+
+# Heating commands for zero are accepted and do nothing.
+M104 S0
+M109 S0
+TURN_OFF_HEATERS
+M105
+
+# The extruder status must look like a real heater's, with zero values.
+ASSERT_HEATERLESS_EXTRUDER_STATUS
+
+# The extruder steppers still home and move (F5 behaviour kept intact).
+G28
+G1 E10 F100
+HOME_EXTRUDER EXTRUDER=extruder1
+ACTIVATE_EXTRUDER EXTRUDER=extruder1
+HOME_ACTIVE_EXTRUDER
+G1 E45 F100
+GET_POSITION
+M114
+M84

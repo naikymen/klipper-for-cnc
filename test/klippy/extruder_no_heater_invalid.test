@@ -1,0 +1,12 @@
+# F10 test: rejecting half-configured extruders.
+#
+# An extruder with heating options but no 'heater_pin' is a configuration
+# mistake, not a heater-less extruder, so both variants must fail to start.
+# Neither config is ever reached past the config check, so they share one
+# gcode list and their CONFIG lines are both placed after it (the harness
+# launches every config it collects when it sees the second one).
+DICTIONARY atmega2560.dict
+SHOULD_FAIL
+M105
+CONFIG extruder_no_heater_sensor_only.cfg
+CONFIG extruder_no_heater_stray_options.cfg
