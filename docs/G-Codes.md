@@ -1732,6 +1732,19 @@ for more info on those parameters.
 `RESET_SMART_EFFECTOR`: Resets Smart Effector sensitivity to its factory
 settings. Requires `control_pin` to be provided in the config section.
 
+### [status_msg]
+
+The following command is available when a
+[status_msg config section](Config_Reference.md#status_msg) is enabled.
+
+#### GET_STATUS_MSG
+`GET_STATUS_MSG`: Report the result of the toolhead's `get_status`
+method to the console, pretty-printed over several lines. The status
+includes the axis limits, the homed axes, the current print and
+estimated print times, and the extra axes of this fork, which makes it
+useful to check a configuration that a web interface does not fully
+show. The output is also written to `klipper.log`.
+
 ### [stepper_enable]
 
 The stepper_enable module is automatically loaded.

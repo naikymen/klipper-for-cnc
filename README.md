@@ -274,6 +274,41 @@ the option is absent. A value of `2` differentiates noise instead of rejecting
 it, so `5` or `10` are better starting points; see the measurements in
 [docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md).
 
+### Skew factors set directly
+
+`[skew_correction]` can be configured with the skew factors themselves instead
+of with measurements of a calibration print, which is useful when the angles
+are already known - from an orthogonal-axis-compensation tool, a CMM or a CAD
+model - and no calibration object has to be printed first:
+
+```gcode
+# 0.1 degrees of skew between X and Y: SET_SKEW_FACTORS takes the
+# tangents of the angles, and tan(0.1 deg) = 0.001745.
+SET_SKEW_FACTORS XY=0.001745
+```
+
+`SET_SKEW_FACTORS [XY=] [XZ=] [YZ=] [CLEAR=]` names the same three planes as
+`SET_SKEW`, but each value is the factor itself rather than a triple of
+measurements. `SET_SKEW` keeps its `XY=<ac_length,bd_length,ad_length>` form,
+and both commands refresh the machine's logical position when they run, so a
+factor change between an absolute and a relative move does not shift the
+machine.
+
+### Console status dump: `GET_STATUS_MSG`
+
+The `[status_msg]` section adds a `GET_STATUS_MSG` command that prints the
+result of the toolhead's `get_status` to the console:
+
+```yaml
+[status_msg]
+```
+
+The status is pretty-printed over several lines and includes the axis limits,
+the homed axes, the print times and the extra-axis indices, which is handy to
+check that a CNC axis was declared the way you intended. It is the same
+information the web interface reads through its webhooks, so it is also a way
+to compare a frontend's reading against the printer's own.
+
 ## Configuration quick start
 
 1. Configure XYZ as usual for a cartesian machine. The only difference is that
@@ -312,7 +347,9 @@ as toolhead axes instead, so most of the configuration syntax changed:
 | `[extruder_home <name>]` section per home-able extruder | Removed. Adding `endstop_pin` (plus `position_endstop` and `position_max`) to `[extruder]` is enough |
 | `MULTIPROBE2 / 3 / 4 / 5 PROBE_NAME=...` | `MULTIPROBE_TOWARD`, `MULTIPROBE_TOWARD_NOERROR`, `MULTIPROBE_AWAY`, `MULTIPROBE_AWAY_NOERROR`, each with `PROBE_NAME=...` |
 | `[probe_G38]` / `[probe_G38_multi <name>]` with `z_offset` | Same sections, without `z_offset`. `recovery_time` is the dwell before the probing move, not a slow approach |
-| `GET_STATUS_MSG`, `manual_spinner`, `pipettin.py`, `QUERY_HX71`, extended G-Code help | Not ported yet. Each one is tracked as `S1` - `S8` in [docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md) |
+| `GET_STATUS_MSG` | `[status_msg]` section, same command with the same output |
+| `SET_SKEW_FACTORS` | Same command: it assigns `[skew_correction]` factors directly, instead of deriving them from a calibration print |
+| `manual_spinner`, `pipettin.py`, `QUERY_HX71`, extended G-Code help | Not ported yet. Each one is tracked as `S1` - `S8` in [docs/CNC_Reimplementation.md](docs/CNC_Reimplementation.md) |
 | `min_extrude_temp: -273.15` (and negative `min_temp`) | Rejected. Heater minimums are clamped to `min_temp`, so use `min_temp: 0` with `min_extrude_temp: 0` to allow cold extrusion moves |
 | Absolute extruder coordinates were hardcoded | Opt-in: `[printer] tool_change_e_reset: False` and `relative_e_restore: False`, plus `[extruder] symmetric_speed_limits: True` |
 | `M114` / `GET_POSITION` reported `X Y Z A B C E` | Reports `X Y Z E A B C`, so the `X Y Z E` prefix keeps its upstream meaning |
@@ -330,15 +367,18 @@ for how to obtain or refresh the cache in `ci_build/dict/`.
 # All of the batch fixtures (configs, G-Code scripts and expected errors):
 python3 scripts/test_klippy.py -d ci_build/dict test/klippy/*.test
 
-# The heater PID arithmetic, including the samples window:
+# The unit tests (arithmetic and command contracts):
 python3 test/unit/test_heaters.py
+python3 test/unit/test_skew_correction.py
+python3 test/unit/test_status_msg.py
 ```
 
 The fixtures for this fork's features are, among others, `extra_axis*.test`
 (extra axes), `homeable_extruder*.test` (home-able extruders),
 `probe_g38*.test` (probing), `extruder_coordinates.test` (extruder coordinate
-options), `gcode_arcs_abc*.test` (arcs with extra axes) and
-`heater_pid_samples*.test` (PID sampling).
+options), `gcode_arcs_abc*.test` (arcs with extra axes),
+`heater_pid_samples*.test` (PID sampling) and `status_msg.test` (console status
+dump).
 
 ## Contributing
 
@@ -380,9 +420,10 @@ original Klipper.
 - Controlled deceleration and recovery from motion faults (`Timer too close`,
   lost communication, ...). The investigation and a phased design are in
   [docs/CNC_Motion_Recovery.md](docs/CNC_Motion_Recovery.md).
-- The secondary changes of the old branch (`S1` - `S8` in the roadmap):
-  `manual_spinner`, the `pipettin.py` helper, `QUERY_HX71`, extended G-Code
-  help, extra status fields, branding, and the old test README.
+- The secondary changes of the old branch (`S1` - `S8` and `N1` in the
+  roadmap): `manual_spinner`, the `pipettin.py` helper, `QUERY_HX71`, extended
+  G-Code help, the per-extruder positions of the toolhead status, branding, and
+  the old test README.
 
 ---
 

@@ -1850,6 +1850,17 @@ Marlin/RepRapFirmware compatible M486 G-Code macro.
 [exclude_object]
 ```
 
+### [status_msg]
+Adds the `GET_STATUS_MSG` extended [command](G-Codes.md#status_msg),
+which prints the toolhead status to the console. This is a
+troubleshooting aid for the extra axes of this fork: the status of the
+toolhead includes the axis limits and the extra-axis indices, which a
+web interface does not always show.
+
+```
+[status_msg]
+```
+
 ## Resonance compensation
 
 ### [input_shaper]

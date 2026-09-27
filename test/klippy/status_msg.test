@@ -1,0 +1,20 @@
+# R2: GET_STATUS_MSG must be registered by [status_msg] and must survive the
+# states a user would reach it from. The harness only checks the exit status,
+# so the registration is asserted through ASSERT_GET_STATUS_MSG and the
+# reported text itself is pinned by test/unit/test_status_msg.py.
+DICTIONARY atmega2560.dict
+CONFIG status_msg.cfg
+
+ASSERT_GET_STATUS_MSG
+# Before homing: the status reports zeroed positions and empty homed_axes.
+GET_STATUS_MSG
+G28
+G1 X20 Y20 Z10 A10 F3000
+# After a synchronized extra-axis move and after a move the extruder coordinate
+# did not take part in.
+GET_STATUS_MSG
+G1 A25
+GET_STATUS_MSG
+M84
+# Still available while the steppers are disabled.
+GET_STATUS_MSG
