@@ -60,7 +60,8 @@ enum {
     SF_HELD=1<<7
 };
 
-static uint32_t mc_motion_to_real(uint32_t m);
+static __always_inline uint32_t mc_motion_to_real(uint32_t m);
+static uint8_t mc_scaled; // motion clock scaled or held (steps use motion time)
 static uint32_t mc_offset(void);
 static uint_fast8_t mc_is_held(void);
 static void mc_reset(void);
@@ -96,7 +97,7 @@ stepper_load_next(struct stepper *s)
         s->count = move_count;
     } else if (HAVE_AVR_OPTIMIZATION && s->flags & SF_OPTIMIZED_PATH) {
         // Using optimized stepper_event_avr() or stepper_event_scaled()
-        if (unlikely(s->time.func)) {
+        if (unlikely(mc_scaled)) {
             // Motion clock is scaled - track motion time, convert to real
             s->motion_time += move_interval;
             s->time.waketime = mc_motion_to_real(s->motion_time);
@@ -168,34 +169,14 @@ stepper_event_edge(struct timer *t)
  DECL_CONSTANT("STEPPER_OPTIMIZED_UNSTEP", AVR_STEP_TICKS);
 #endif
 
-// AVR optimized step function
-static uint_fast8_t
-stepper_event_avr(struct timer *t)
-{
-    struct stepper *s = container_of(t, struct stepper, time);
-    gpio_out_toggle_noirq(s->step_pin);
-    uint16_t *pcount = (void*)&s->count, count = *pcount - 1;
-    if (likely(count)) {
-        *pcount = count;
-        s->time.waketime += s->interval;
-        gpio_out_toggle_noirq(s->step_pin);
-        if (s->flags & SF_HAVE_ADD)
-            s->interval += s->add;
-        return SF_RESCHEDULE;
-    }
-    uint_fast8_t ret = stepper_load_next(s);
-    gpio_out_toggle_noirq(s->step_pin);
-    return ret;
-}
-
 #if HAVE_AVR_OPTIMIZATION
 // AVR step function while the motion clock is scaled or held: like
 // stepper_event_avr(), but steps are scheduled in motion time and
-// converted to real time through the shared motion clock mapping
-static uint_fast8_t
-stepper_event_scaled(struct timer *t)
+// converted to real time through the shared motion clock mapping.
+// Inlined into stepper_event_avr() to avoid an indirect call per step.
+static __always_inline uint_fast8_t
+stepper_event_scaled(struct stepper *s)
 {
-    struct stepper *s = container_of(t, struct stepper, time);
     gpio_out_toggle_noirq(s->step_pin);
     uint16_t *pcount = (void*)&s->count, count = *pcount - 1;
     if (likely(count)) {
@@ -212,6 +193,31 @@ stepper_event_scaled(struct timer *t)
     return ret;
 }
 #endif
+
+// AVR optimized step function
+static uint_fast8_t
+stepper_event_avr(struct timer *t)
+{
+    struct stepper *s = container_of(t, struct stepper, time);
+#if HAVE_AVR_OPTIMIZATION
+    if (unlikely(mc_scaled))
+        return stepper_event_scaled(s);
+#endif
+    gpio_out_toggle_noirq(s->step_pin);
+    uint16_t *pcount = (void*)&s->count, count = *pcount - 1;
+    if (likely(count)) {
+        *pcount = count;
+        s->time.waketime += s->interval;
+        gpio_out_toggle_noirq(s->step_pin);
+        if (s->flags & SF_HAVE_ADD)
+            s->interval += s->add;
+        return SF_RESCHEDULE;
+    }
+    uint_fast8_t ret = stepper_load_next(s);
+    gpio_out_toggle_noirq(s->step_pin);
+    return ret;
+}
+
 
 // Regular "fully scheduled" step function
 static uint_fast8_t
@@ -432,8 +438,6 @@ stepper_shutdown(void)
     foreach_oid(i, s, command_config_stepper) {
         move_queue_clear(&s->mq);
         stepper_stop(&s->stop_signal, 0);
-        s->time.func = (HAVE_AVR_OPTIMIZATION && s->flags & SF_OPTIMIZED_PATH
-                        ? NULL : s->time.func);
     }
     mc_reset();
 }
@@ -490,7 +494,7 @@ mc_is_held(void)
 }
 
 // Convert a motion time to a real time using the current mapping
-static uint32_t
+static __always_inline uint32_t
 mc_motion_to_real(uint32_t m)
 {
     uint32_t dm = m - MC.m0;
@@ -568,14 +572,11 @@ mc_update_steppers(uint8_t old_mode, uint8_t new_mode, uint8_t resched)
         if (old_mode == MC_NORMAL) {
             // Start tracking motion time explicitly
             s->motion_time = s->time.waketime - MC.offset;
-            s->time.func = stepper_event_scaled;
         }
         if (!s->count) {
             // Idle stepper - keep its last step time consistent
-            if (new_mode == MC_NORMAL) {
-                s->time.func = NULL;
+            if (new_mode == MC_NORMAL)
                 s->time.waketime = s->motion_time + MC.offset;
-            }
             continue;
         }
         if (!resched && old_mode == MC_SCALED && new_mode == MC_SCALED)
@@ -587,7 +588,6 @@ mc_update_steppers(uint8_t old_mode, uint8_t new_mode, uint8_t resched)
         if (new_mode == MC_HELD) {
             s->flags |= SF_HELD;
         } else if (new_mode == MC_NORMAL) {
-            s->time.func = NULL;
             uint32_t w = s->motion_time + MC.offset;
             uint32_t min_w = MC.r0 + MC_MIN_LEAD;
             s->time.waketime = timer_is_before(w, min_w) ? min_w : w;
@@ -629,6 +629,7 @@ mc_event(struct timer *t)
     uint16_t k = k_new;
     if (k == 0) {
         MC.mode = MC_HELD;
+        mc_scaled = 1;
         MC.k = 0;
         mc_update_steppers(old_mode, MC_HELD, 1);
         MC.active = 0;
@@ -636,6 +637,7 @@ mc_event(struct timer *t)
     }
     if (k >= MC_K_ONE) {
         MC.mode = MC_NORMAL;
+        mc_scaled = 0;
         MC.k = MC_K_ONE;
         MC.offset = MC.r0 - MC.m0;
         mc_update_steppers(old_mode, MC_NORMAL, 1);
@@ -650,6 +652,7 @@ mc_event(struct timer *t)
     MC.k = k;
     MC.f = resched ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
     MC.mode = MC_SCALED;
+    mc_scaled = 1;
     if (resched)
         mc_update_steppers(old_mode, MC_SCALED, 1);
     MC.timer.waketime = now + timer_from_us(MC_TICK_US);
@@ -714,6 +717,7 @@ static void
 mc_reset(void)
 {
     MC.mode = MC_NORMAL;
+    mc_scaled = 0;
     MC.k = MC_K_ONE;
     MC.offset = 0;
     MC.active = 0;
@@ -722,6 +726,7 @@ mc_reset(void)
 #else // !HAVE_AVR_OPTIMIZATION
 
 static uint32_t mc_motion_to_real(uint32_t m) { return m; }
+// mc_scaled stays 0 without the motion clock
 static uint32_t mc_offset(void) { return 0; }
 static uint_fast8_t mc_is_held(void) { return 0; }
 static void mc_reset(void) { }
