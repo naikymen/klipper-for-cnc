@@ -494,6 +494,9 @@ static uint32_t
 mc_motion_to_real(uint32_t m)
 {
     uint32_t dm = m - MC.m0;
+    if (likely(!(dm >> 16)))
+        // Common case: step within 2^16 ticks of the anchor - one multiply
+        return MC.r0 + (((uint32_t)(uint16_t)dm * MC.f) >> 8);
     if ((int32_t)dm < 0)
         // Already due - don't stretch lateness
         return MC.r0 + dm;
