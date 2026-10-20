@@ -476,6 +476,10 @@ static struct {
     uint32_t r0, m0;            // anchor of the scaled mapping
     uint16_t k, f;              // rate (Q14) and 1/k (Q8)
     uint16_t k_to, ramp_steps, ramp_pos;
+    struct timer deadline_timer; // hold on underrun (host lease)
+    uint32_t deadline;          // motion time up to which steps are queued
+    uint16_t deadline_ramp_ms;
+    uint8_t deadline_on, event;
     int16_t k_step, k_rem_step; // per-tick change of k, and its remainder
     uint16_t k_rem;             // remainder accumulator (Bresenham)
     uint8_t mode, active;
@@ -659,6 +663,8 @@ mc_event(struct timer *t)
     return SF_RESCHEDULE;
 }
 
+static void mc_start_ramp(uint16_t k_to, uint16_t ramp_ms);
+
 // Ramp the motion clock rate to k over ramp_ms milliseconds
 // (k=0 holds, k=MOTION_CLOCK_K_ONE resumes normal motion)
 void
@@ -674,6 +680,16 @@ command_motion_clock_set_rate(uint32_t *args)
             shutdown("Motion clock needs optimized steppers");
     }
     irq_disable();
+    mc_start_ramp(k_to, ramp_ms);
+    irq_enable();
+}
+DECL_COMMAND(command_motion_clock_set_rate,
+             "motion_clock_set_rate k=%hu ramp_ms=%hu");
+
+// Start a linear ramp of the rate to k_to (caller must disable irqs)
+static void
+mc_start_ramp(uint16_t k_to, uint16_t ramp_ms)
+{
     uint16_t k_now = MC.mode == MC_NORMAL ? MC_K_ONE : MC.k;
     MC.k_to = k_to;
     MC.ramp_steps = ramp_ms ? ramp_ms : 1;
@@ -682,21 +698,96 @@ command_motion_clock_set_rate(uint32_t *args)
     MC.k_step = span / (int16_t)MC.ramp_steps;
     MC.k_rem_step = span % (int16_t)MC.ramp_steps;
     MC.k_rem = 0;
-    if (k_to == k_now && MC.mode != MC_SCALED) {
+    if (k_to == k_now && MC.mode != MC_SCALED)
         // Already there
-        irq_enable();
         return;
-    }
     if (MC.active)
         sched_del_timer(&MC.timer);
     MC.timer.func = mc_event;
     MC.timer.waketime = timer_read_time() + timer_from_us(100);
     MC.active = 1;
     sched_add_timer(&MC.timer);
+}
+
+/****************************************************************
+ * Hold on underrun
+ ****************************************************************/
+
+// The host keeps renewing a deadline: "steps are queued up to motion time
+// T".  If the motion clock reaches T - ramp without a newer deadline, the
+// host has stopped feeding steps (lag, crash, lost link), and the MCU
+// ramps the rate to zero by itself.  A linear ramp from full speed uses
+// half the ramp time in motion time, so motion stops on the planned path
+// before the queued steps run out - instead of "Timer too close" and a
+// shutdown.  Motion stays held (position kept) until the host resumes.
+
+static struct task_wake mc_wake;
+enum { MC_EVENT_UNDERRUN_HOLD = 1 };
+
+static uint32_t
+mc_deadline_trigger(void)
+{
+    return MC.deadline - timer_from_us((uint32_t)MC.deadline_ramp_ms * 1000);
+}
+
+static uint_fast8_t
+mc_deadline_event(struct timer *t)
+{
+    if (!MC.deadline_on || MC.mode == MC_HELD)
+        return SF_DONE;
+    uint32_t now = t->waketime;
+    uint32_t trigger = mc_deadline_trigger();
+    if ((int32_t)(mc_motion_now(now) - trigger) < 0) {
+        // Not there yet (the motion clock was slowed) - check again
+        t->waketime = (MC.mode == MC_NORMAL ? trigger + MC.offset
+                       : now + timer_from_us(MC_TICK_US));
+        return SF_RESCHEDULE;
+    }
+    // Underrun: no newer deadline arrived in time - hold
+    MC.deadline_on = 0;
+    mc_start_ramp(0, MC.deadline_ramp_ms);
+    MC.event = MC_EVENT_UNDERRUN_HOLD;
+    sched_wake_task(&mc_wake);
+    return SF_DONE;
+}
+
+// Renew (or with ramp_ms=0 disable) the underrun deadline
+void
+command_motion_clock_set_deadline(uint32_t *args)
+{
+    irq_disable();
+    sched_del_timer(&MC.deadline_timer);
+    MC.deadline = args[0];
+    MC.deadline_ramp_ms = args[1];
+    MC.deadline_on = !!MC.deadline_ramp_ms;
+    if (MC.deadline_on) {
+        uint32_t now = timer_read_time(), min_w = now + timer_from_us(100);
+        uint32_t w = (MC.mode == MC_NORMAL
+                      ? mc_deadline_trigger() + MC.offset : min_w);
+        MC.deadline_timer.func = mc_deadline_event;
+        MC.deadline_timer.waketime = timer_is_before(w, min_w) ? min_w : w;
+        sched_add_timer(&MC.deadline_timer);
+    }
     irq_enable();
 }
-DECL_COMMAND(command_motion_clock_set_rate,
-             "motion_clock_set_rate k=%hu ramp_ms=%hu");
+DECL_COMMAND(command_motion_clock_set_deadline,
+             "motion_clock_set_deadline mclock=%u ramp_ms=%hu");
+
+// Report events raised in irq context
+void
+motion_clock_task(void)
+{
+    if (!sched_check_wake(&mc_wake))
+        return;
+    irq_disable();
+    uint8_t event = MC.event;
+    MC.event = 0;
+    uint32_t mnow = mc_motion_now(timer_read_time());
+    irq_enable();
+    if (event)
+        sendf("motion_clock_event reason=%c mclock=%u", event, mnow);
+}
+DECL_TASK(motion_clock_task);
 
 void
 command_motion_clock_query(uint32_t *args)
@@ -720,6 +811,7 @@ mc_reset(void)
     mc_scaled = 0;
     MC.k = MC_K_ONE;
     MC.offset = 0;
+    MC.deadline_on = 0;
     MC.active = 0;
 }
 
