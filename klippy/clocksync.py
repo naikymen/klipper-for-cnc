@@ -145,6 +145,15 @@ class ClockSync:
     def estimate_clock_systime(self, reqclock):
         sample_time, clock, freq = self.clock_est
         return float(reqclock - clock)/freq + sample_time
+    # Motion clock support (extras/motion_clock.py): the MCU's step clock
+    # may fall behind the hardware clock after holds.  'motion_offset_time'
+    # is the part already folded into print_time; 'motion_lag' estimates
+    # the part not yet folded in (non-zero only during holds/ramps).
+    motion_offset_time = 0.
+    def motion_lag(self, eventtime):
+        return 0.
+    def estimated_motion_time(self, eventtime):
+        return self.estimated_print_time(eventtime) - self.motion_lag(eventtime)
     def estimated_print_time(self, eventtime):
         return self.clock_to_print_time(self.get_clock(eventtime))
     # misc commands
@@ -170,7 +179,7 @@ class ClockSync:
         sample_time, clock, freq = self.clock_est
         return "freq=%d" % (freq,)
     def calibrate_clock(self, print_time, eventtime):
-        return (0., self.mcu_freq)
+        return (self.motion_offset_time, self.mcu_freq)
 
 # Clock syncing code for secondary MCUs (whose clocks are sync'ed to a
 # primary MCU)

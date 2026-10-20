@@ -290,3 +290,12 @@ itersolve_get_gen_steps_post_active(struct stepper_kinematics *sk)
 {
     return sk->gen_steps_post_active;
 }
+
+// Shift the stepper's step generation times later by 'delta' seconds (see
+// trapq_shift_time())
+void __visible
+itersolve_shift_time(struct stepper_kinematics *sk, double delta)
+{
+    sk->last_flush_time += delta;
+    sk->last_move_time += delta;
+}

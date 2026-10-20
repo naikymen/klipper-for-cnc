@@ -101,6 +101,7 @@ class GCodeDispatch:
     Coord = Coord
     def __init__(self, printer):
         self.printer = printer
+        self.realtime_commands = {}
         self.is_fileinput = not not printer.get_start_args().get("debuginput")
         printer.register_event_handler("klippy:ready", self._handle_ready)
         printer.register_event_handler("klippy:shutdown", self._handle_shutdown)
@@ -338,6 +339,17 @@ class GCodeDispatch:
     def cmd_M110(self, gcmd):
         # Set Current Line Number
         pass
+    # Realtime commands: handled as soon as they are read (even while
+    # other commands are blocked), like M112
+    def register_realtime_command(self, name, callback):
+        self.realtime_commands[name.upper()] = callback
+    def match_realtime_command(self, line):
+        if not self.realtime_commands:
+            return None
+        words = line.split(';', 1)[0].strip().split()
+        if words and words[0].upper() in self.realtime_commands:
+            return self.realtime_commands[words[0].upper()]
+        return None
     def cmd_M112(self, gcmd):
         # Emergency Stop
         self.printer.invoke_shutdown("Shutdown due to M112 command")
@@ -462,6 +474,12 @@ class GCodeIO:
             for line in lines:
                 if self.m112_r.match(line) is not None:
                     self.gcode.cmd_M112(None)
+            # Realtime commands run out-of-order and are then dropped
+            for i, line in enumerate(pending_commands):
+                cb = self.gcode.match_realtime_command(line)
+                if cb is not None:
+                    pending_commands[i] = ""
+                    cb(line)
         if self.is_processing_data:
             if len(pending_commands) >= 20:
                 # Stop reading input

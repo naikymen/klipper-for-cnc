@@ -65,6 +65,8 @@ defs_steppersync = """
         , struct serialqueue *sq, int move_num);
     void steppersync_set_time(struct steppersync *ss
         , double time_offset, double mcu_freq);
+    void steppersync_set_movequeue_clock_offset(struct steppersync *ss
+        , int64_t offset);
     struct steppersyncmgr *steppersyncmgr_alloc(void);
     void steppersyncmgr_free(struct steppersyncmgr *ssm);
     struct steppersync *steppersyncmgr_alloc_steppersync(
@@ -80,6 +82,7 @@ defs_itersolve = """
     void itersolve_set_trapq(struct stepper_kinematics *sk, struct trapq *tq
         , double step_dist);
     struct trapq *itersolve_get_trapq(struct stepper_kinematics *sk);
+    void itersolve_shift_time(struct stepper_kinematics *sk, double delta);
     double itersolve_calc_position_from_coord(struct stepper_kinematics *sk
         , double x, double y, double z);
     void itersolve_set_position(struct stepper_kinematics *sk
@@ -106,6 +109,7 @@ defs_trapq = """
         , double start_v, double cruise_v, double accel);
     void trapq_finalize_moves(struct trapq *tq, double print_time
         , double clear_history_time);
+    void trapq_shift_time(struct trapq *tq, double delta);
     void trapq_set_position(struct trapq *tq, double print_time
         , double pos_x, double pos_y, double pos_z);
     int trapq_extract_old(struct trapq *tq, struct pull_move *p, int max

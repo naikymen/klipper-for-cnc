@@ -259,7 +259,7 @@ class ToolHead:
         self.print_time = max(self.print_time, next_print_time)
     def _calc_print_time(self):
         curtime = self.reactor.monotonic()
-        est_print_time = self.mcu.estimated_print_time(curtime)
+        est_print_time = self.mcu.estimated_motion_time(curtime)
         kin_time = self.motion_queuing.calc_step_gen_restart(est_print_time)
         min_print_time = max(est_print_time + BUFFER_TIME_START, kin_time)
         if min_print_time > self.print_time:
@@ -338,7 +338,7 @@ class ToolHead:
         if self.lookahead.is_empty():
             # In "NeedPrime" state and can remain there
             return
-        est_print_time = self.mcu.estimated_print_time(eventtime)
+        est_print_time = self.mcu.estimated_motion_time(eventtime)
         if self.check_stall_time:
             # Was in "NeedPrime" state and got there from idle input
             if est_print_time < self.check_stall_time:
@@ -361,7 +361,7 @@ class ToolHead:
         # Check if there are lots of queued moves and pause if so
         did_pause = False
         while 1:
-            est_print_time = self.mcu.estimated_print_time(eventtime)
+            est_print_time = self.mcu.estimated_motion_time(eventtime)
             pause_time = self.print_time - est_print_time - BUFFER_TIME_HIGH
             if pause_time <= 0.:
                 break
@@ -423,7 +423,7 @@ class ToolHead:
         self._flush_lookahead()
         eventtime = self.reactor.monotonic()
         while (not self.special_queuing_state
-               or self.print_time >= self.mcu.estimated_print_time(eventtime)):
+               or self.print_time >= self.mcu.estimated_motion_time(eventtime)):
             if not self.can_pause:
                 break
             eventtime = self.reactor.pause(eventtime + 0.100)
@@ -492,17 +492,17 @@ class ToolHead:
         self.motion_queuing.wipe_trapq(self.trapq)
     # Misc commands
     def stats(self, eventtime):
-        est_print_time = self.mcu.estimated_print_time(eventtime)
+        est_print_time = self.mcu.estimated_motion_time(eventtime)
         buffer_time = self.print_time - est_print_time
         is_active = buffer_time > -60. or not self.special_queuing_state
         return is_active, "print_time=%.3f buffer_time=%.3f print_stall=%d" % (
             self.print_time, max(buffer_time, 0.), self.print_stall)
     def check_busy(self, eventtime):
-        est_print_time = self.mcu.estimated_print_time(eventtime)
+        est_print_time = self.mcu.estimated_motion_time(eventtime)
         return self.print_time, est_print_time, self.lookahead.is_empty()
     def get_status(self, eventtime):
         print_time = self.print_time
-        estimated_print_time = self.mcu.estimated_print_time(eventtime)
+        estimated_print_time = self.mcu.estimated_motion_time(eventtime)
         extruder = self.extra_axes[0]
         res = dict(self.kin.get_status(eventtime))
         res.update({ 'print_time': print_time,

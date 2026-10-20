@@ -32,6 +32,7 @@ int32_t itersolve_is_active_axis(struct stepper_kinematics *sk, char axis);
 void itersolve_set_trapq(struct stepper_kinematics *sk, struct trapq *tq
                          , double step_dist);
 struct trapq *itersolve_get_trapq(struct stepper_kinematics *sk);
+void itersolve_shift_time(struct stepper_kinematics *sk, double delta);
 double itersolve_calc_position_from_coord(struct stepper_kinematics *sk
                                           , double x, double y, double z);
 void itersolve_set_position(struct stepper_kinematics *sk

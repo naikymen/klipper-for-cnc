@@ -228,6 +228,10 @@ struct steppersync {
     // Storage for list of pending move clocks
     uint64_t *move_clocks;
     int num_move_clocks;
+    // Hardware clock minus step clock (non-zero once the MCU motion clock
+    // has fallen behind real time); move availability is in step clock
+    // but transmit scheduling uses the hardware clock
+    int64_t movequeue_clock_offset;
 };
 
 // Allocate a new syncemitter instance
@@ -268,6 +272,13 @@ steppersync_set_time(struct steppersync *ss, double time_offset
         if (se->sc)
             stepcompress_set_time(se->sc, time_offset, mcu_freq);
     }
+}
+
+// Set the offset from step clock to hardware clock for move queue tracking
+void __visible
+steppersync_set_movequeue_clock_offset(struct steppersync *ss, int64_t offset)
+{
+    ss->movequeue_clock_offset = offset;
 }
 
 // Implement a binary heap algorithm to track when the next available
@@ -327,7 +338,8 @@ steppersync_flush(struct steppersync *ss, uint64_t move_clock)
             // that move queue item becomes available.
             heap_replace(ss, qm->min_clock);
         // Reset the min_clock to its normal meaning (minimum transmit time)
-        qm->min_clock = next_avail;
+        qm->min_clock = (next_avail ? next_avail + ss->movequeue_clock_offset
+                         : 0);
 
         // Batch this command
         list_del(&qm->node);

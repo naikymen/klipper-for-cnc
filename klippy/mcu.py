@@ -1233,6 +1233,12 @@ class MCU:
         return self._clocksync.clock_to_print_time(clock)
     def estimated_print_time(self, eventtime):
         return self._clocksync.estimated_print_time(eventtime)
+    def estimated_motion_time(self, eventtime):
+        # Where the MCU's motion currently is, in print_time (equal to
+        # estimated_print_time() unless the motion clock is held/slowed)
+        return self._clocksync.estimated_motion_time(eventtime)
+    def get_clocksync(self):
+        return self._clocksync
     def clock32_to_clock64(self, clock32):
         return self._clocksync.clock32_to_clock64(clock32)
     def calibrate_clock(self, print_time, eventtime):

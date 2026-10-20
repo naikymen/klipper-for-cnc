@@ -199,6 +199,25 @@ trapq_finalize_moves(struct trapq *tq, double print_time
     }
 }
 
+// Shift every move (queued and history) later by 'delta' seconds.  Used
+// when the MCU motion clock fell behind real time (a hold): relabelling all
+// motion state, together with the stepper time base, by the same amount
+// keeps the generated step clocks unchanged.
+void __visible
+trapq_shift_time(struct trapq *tq, double delta)
+{
+    struct move *m;
+    list_for_each_entry(m, &tq->moves, node) {
+        // Skip the head sentinel (-1), and the tail sentinel when unset (0)
+        // or unbounded (NEVER_TIME)
+        if (m->print_time > 0. && m->print_time < NEVER_TIME)
+            m->print_time += delta;
+    }
+    list_for_each_entry(m, &tq->history, node) {
+        m->print_time += delta;
+    }
+}
+
 // Note a position change in the trapq history
 void __visible
 trapq_set_position(struct trapq *tq, double print_time

@@ -105,7 +105,7 @@ class PrinterMotionQueuing:
             offset, freq = mcu.calibrate_clock(sync_time, eventtime)
             ffi_lib.steppersync_set_time(ss, offset, freq)
         # Calculate history expiration
-        est_print_time = self.mcu.estimated_print_time(eventtime)
+        est_print_time = self.mcu.estimated_motion_time(eventtime)
         self.clear_history_time = max(0., est_print_time - MOVE_HISTORY_EXPIRE)
         return False, ""
     # Flush notification callbacks
@@ -178,7 +178,7 @@ class PrinterMotionQueuing:
             if self.last_flush_time >= want_flush_time or not self.can_pause:
                 return
             systime = self.reactor.monotonic()
-            est_print_time = self.mcu.estimated_print_time(systime)
+            est_print_time = self.mcu.estimated_motion_time(systime)
             wait = want_flush_time - BGFLUSH_HIGH_TIME - est_print_time
             if wait <= 0.:
                 return
@@ -192,7 +192,7 @@ class PrinterMotionQueuing:
         return kin_time + self.kin_flush_delay
     def _flush_handler(self, eventtime):
         try:
-            est_print_time = self.mcu.estimated_print_time(eventtime)
+            est_print_time = self.mcu.estimated_motion_time(eventtime)
             aggr_sg_time = self.need_step_gen_time - 2.*self.kin_flush_delay
             if self.last_step_gen_time < aggr_sg_time:
                 # Actively stepping - want more aggressive flushing
@@ -275,7 +275,7 @@ class PrinterMotionQueuing:
             if drip_completion.test():
                 break
             curtime = self.reactor.monotonic()
-            est_print_time = self.mcu.estimated_print_time(curtime)
+            est_print_time = self.mcu.estimated_motion_time(curtime)
             wait_time = flush_time - est_print_time - DRIP_TIME
             if wait_time > 0. and self.can_pause:
                 # Pause before sending more steps
