@@ -38,6 +38,13 @@ CFLAGS += -flto=auto -fwhole-program -fno-use-linker-plugin -ggdb3
 OBJS_klipper.elf = $(patsubst %.c, $(OUT)src/%.o,$(src-y))
 OBJS_klipper.elf += $(OUT)compile_time_request.o
 CFLAGS_klipper.elf = $(CFLAGS) -Wl,--gc-sections
+# LTO_LINKER_PLUGIN=1 does the final link through the LTO plugin.  Without
+# it collect2 first links the (fat) non-LTO code, which still holds every
+# string literal and can overflow the atmega328p's 2KiB of RAM before LTO
+# removes them.  Objects stay fat, as the compile time requests need that.
+ifeq ($(LTO_LINKER_PLUGIN),1)
+CFLAGS_klipper.elf += -fuse-linker-plugin
+endif
 
 CPPFLAGS = -I$(OUT) -P -MD -MT $@
 
