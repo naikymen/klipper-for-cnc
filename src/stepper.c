@@ -43,6 +43,7 @@ struct stepper {
     int16_t add;
     uint32_t count;
     uint32_t next_step_time, step_pulse_ticks;
+    uint32_t motion_time; // next step in motion clock time (while scaled)
     struct gpio_out step_pin, dir_pin;
     uint32_t position;
     struct move_queue_head mq;
@@ -55,8 +56,14 @@ enum { POSITION_BIAS=0x40000000 };
 
 enum {
     SF_LAST_DIR=1<<0, SF_NEXT_DIR=1<<1, SF_INVERT_STEP=1<<2, SF_NEED_RESET=1<<3,
-    SF_SINGLE_SCHED=1<<4, SF_OPTIMIZED_PATH=1<<5, SF_HAVE_ADD=1<<6
+    SF_SINGLE_SCHED=1<<4, SF_OPTIMIZED_PATH=1<<5, SF_HAVE_ADD=1<<6,
+    SF_HELD=1<<7
 };
+
+static uint32_t mc_motion_to_real(uint32_t m);
+static uint32_t mc_offset(void);
+static uint_fast8_t mc_is_held(void);
+static void mc_reset(void);
 
 // Setup a stepper for the next move in its queue
 static uint_fast8_t
@@ -88,8 +95,14 @@ stepper_load_next(struct stepper *s)
         s->time.waketime += move_interval;
         s->count = move_count;
     } else if (HAVE_AVR_OPTIMIZATION && s->flags & SF_OPTIMIZED_PATH) {
-        // Using optimized stepper_event_avr()
-        s->time.waketime += move_interval;
+        // Using optimized stepper_event_avr() or stepper_event_scaled()
+        if (unlikely(s->time.func)) {
+            // Motion clock is scaled - track motion time, convert to real
+            s->motion_time += move_interval;
+            s->time.waketime = mc_motion_to_real(s->motion_time);
+        } else {
+            s->time.waketime += move_interval;
+        }
         s->count = move_count;
         s->flags = move_add ? s->flags | SF_HAVE_ADD : s->flags & ~SF_HAVE_ADD;
     } else {
@@ -174,6 +187,31 @@ stepper_event_avr(struct timer *t)
     gpio_out_toggle_noirq(s->step_pin);
     return ret;
 }
+
+#if HAVE_AVR_OPTIMIZATION
+// AVR step function while the motion clock is scaled or held: like
+// stepper_event_avr(), but steps are scheduled in motion time and
+// converted to real time through the shared motion clock mapping
+static uint_fast8_t
+stepper_event_scaled(struct timer *t)
+{
+    struct stepper *s = container_of(t, struct stepper, time);
+    gpio_out_toggle_noirq(s->step_pin);
+    uint16_t *pcount = (void*)&s->count, count = *pcount - 1;
+    if (likely(count)) {
+        *pcount = count;
+        s->motion_time += s->interval;
+        if (s->flags & SF_HAVE_ADD)
+            s->interval += s->add;
+        s->time.waketime = mc_motion_to_real(s->motion_time);
+        gpio_out_toggle_noirq(s->step_pin);
+        return SF_RESCHEDULE;
+    }
+    uint_fast8_t ret = stepper_load_next(s);
+    gpio_out_toggle_noirq(s->step_pin);
+    return ret;
+}
+#endif
 
 // Regular "fully scheduled" step function
 static uint_fast8_t
@@ -282,7 +320,11 @@ command_queue_step(uint32_t *args)
         s->flags = flags;
         move_queue_push(&m->node, &s->mq);
         stepper_load_next(s);
-        sched_add_timer(&s->time);
+        if (unlikely(mc_is_held()))
+            // Motion clock is held - schedule on resume
+            s->flags |= SF_HELD;
+        else
+            sched_add_timer(&s->time);
     }
     irq_enable();
 }
@@ -310,7 +352,10 @@ command_reset_step_clock(uint32_t *args)
     irq_disable();
     if (s->count)
         shutdown("Can't reset time when stepper active");
-    s->next_step_time = s->time.waketime = waketime;
+    // The clock is in motion time (equal to real time unless a hold or
+    // rate change has made the motion clock fall behind)
+    s->motion_time = waketime;
+    s->next_step_time = s->time.waketime = waketime + mc_offset();
     s->flags &= ~SF_NEED_RESET;
     irq_enable();
 }
@@ -387,6 +432,295 @@ stepper_shutdown(void)
     foreach_oid(i, s, command_config_stepper) {
         move_queue_clear(&s->mq);
         stepper_stop(&s->stop_signal, 0);
+        s->time.func = (HAVE_AVR_OPTIMIZATION && s->flags & SF_OPTIMIZED_PATH
+                        ? NULL : s->time.func);
     }
+    mc_reset();
 }
 DECL_SHUTDOWN(stepper_shutdown);
+
+
+/****************************************************************
+ * Motion clock (time scaling)
+ ****************************************************************/
+
+// Stepper timetables are kept in "motion time" M.  Normally the motion
+// clock runs with the hardware timer, M = R - offset, and the regular
+// step path is used unchanged.  To slow down, hold or resume motion along
+// the planned path, the motion clock advances at a rate 0 <= k <= 1:
+//     M = M0 + k * (R - R0)    so    R = R0 + (M - M0) / k
+// While k < 1 every stepper keeps the exact motion time of its next step
+// and converts it through this one shared mapping, so axes stay in sync
+// and rounding errors don't accumulate.  k changes in steps along a
+// linear ramp, one step per MC_TICK, re-anchoring (R0, M0) each time.
+
+#if HAVE_AVR_OPTIMIZATION
+
+#define MC_K_ONE (1 << 14)          // k is fixed point Q14
+#define MC_K_MIN (MC_K_ONE / 128)   // smallest non-zero k (keeps 1/k in 16 bits)
+#define MC_TICK_US 1000             // ramp step period
+#define MC_STEADY_US 100000         // re-anchor period while k is constant
+#define MC_MIN_LEAD 40              // min ticks ahead when rescheduling
+
+DECL_CONSTANT("MOTION_CLOCK_K_ONE", MC_K_ONE);
+
+enum { MC_NORMAL, MC_SCALED, MC_HELD };
+
+static struct {
+    struct timer timer;
+    uint32_t offset;            // R - M while normal
+    uint32_t r0, m0;            // anchor of the scaled mapping
+    uint16_t k, f;              // rate (Q14) and 1/k (Q8)
+    uint16_t k_to, ramp_steps, ramp_pos;
+    int16_t k_step, k_rem_step; // per-tick change of k, and its remainder
+    uint16_t k_rem;             // remainder accumulator (Bresenham)
+    uint8_t mode, active;
+} MC;
+
+static uint32_t
+mc_offset(void)
+{
+    return MC.offset;
+}
+
+static uint_fast8_t
+mc_is_held(void)
+{
+    return MC.mode == MC_HELD;
+}
+
+// Convert a motion time to a real time using the current mapping
+static uint32_t
+mc_motion_to_real(uint32_t m)
+{
+    uint32_t dm = m - MC.m0;
+    if ((int32_t)dm < 0)
+        // Already due - don't stretch lateness
+        return MC.r0 + dm;
+    uint32_t hi = (uint32_t)(uint16_t)(dm >> 16) * MC.f;
+    if (hi >= (1UL << 23))
+        // Further away than can be represented
+        return MC.r0 + 0x7fffffff;
+    uint32_t lo = (uint32_t)(uint16_t)dm * MC.f;
+    return MC.r0 + (hi << 8) + (lo >> 8);
+}
+
+// Scale a real-time duration by k (dt < 2^30)
+static uint32_t
+mc_scale(uint32_t dt, uint16_t k)
+{
+    uint32_t hi = (uint32_t)(uint16_t)(dt >> 16) * k;
+    uint32_t lo = (uint32_t)(uint16_t)dt * k;
+    return (hi << 2) + (lo >> 14);
+}
+
+// Refine f ~= 2^22 / k by Newton's method (f' = f * (2 - k*f)), valid
+// when f is already close; multiplies only, no division
+static uint16_t
+mc_refine_inverse(uint16_t k, uint16_t f)
+{
+    uint_fast8_t i;
+    for (i = 0; i < 2; i++) {
+        int32_t e = (int32_t)(1UL << 22) - (int32_t)((uint32_t)k * f);
+        f += ((int32_t)f * (e >> 8)) >> 14;
+    }
+    return f;
+}
+
+// Current motion time (caller must disable irqs)
+static uint32_t
+mc_motion_now(uint32_t now)
+{
+    if (MC.mode == MC_NORMAL)
+        return now - MC.offset;
+    if (MC.mode == MC_HELD)
+        return MC.m0;
+    return MC.m0 + mc_scale(now - MC.r0, MC.k);
+}
+
+// Reschedule a stepper's pending step after the mapping changed
+static void
+mc_reschedule(struct stepper *s)
+{
+    uint32_t w = mc_motion_to_real(s->motion_time);
+    uint32_t min_w = MC.r0 + MC_MIN_LEAD;
+    if (timer_is_before(w, min_w))
+        w = min_w;
+    s->time.waketime = w;
+    sched_add_timer(&s->time);
+}
+
+// Apply a new mode / mapping to all steppers.  Pending steps are only
+// moved when 'resched' is set: the mapping is continuous at each re-anchor,
+// so a small change of k shifts a pending step by a fraction of one step
+// interval, and the steps after it are computed from exact motion times.
+static void
+mc_update_steppers(uint8_t old_mode, uint8_t new_mode, uint8_t resched)
+{
+    uint8_t i;
+    struct stepper *s;
+    foreach_oid(i, s, command_config_stepper) {
+        if (!(s->flags & SF_OPTIMIZED_PATH))
+            continue;
+        if (old_mode == MC_NORMAL) {
+            // Start tracking motion time explicitly
+            s->motion_time = s->time.waketime - MC.offset;
+            s->time.func = stepper_event_scaled;
+        }
+        if (!s->count) {
+            // Idle stepper - keep its last step time consistent
+            if (new_mode == MC_NORMAL) {
+                s->time.func = NULL;
+                s->time.waketime = s->motion_time + MC.offset;
+            }
+            continue;
+        }
+        if (!resched && old_mode == MC_SCALED && new_mode == MC_SCALED)
+            continue;
+        if (s->flags & SF_HELD)
+            s->flags &= ~SF_HELD;
+        else
+            sched_del_timer(&s->time);
+        if (new_mode == MC_HELD) {
+            s->flags |= SF_HELD;
+        } else if (new_mode == MC_NORMAL) {
+            s->time.func = NULL;
+            uint32_t w = s->motion_time + MC.offset;
+            uint32_t min_w = MC.r0 + MC_MIN_LEAD;
+            s->time.waketime = timer_is_before(w, min_w) ? min_w : w;
+            sched_add_timer(&s->time);
+        } else {
+            mc_reschedule(s);
+        }
+    }
+}
+
+static uint_fast8_t
+mc_event(struct timer *t)
+{
+    uint32_t now = MC.timer.waketime;
+    // Re-anchor the mapping at this tick
+    uint8_t old_mode = MC.mode;
+    if (old_mode == MC_NORMAL)
+        MC.m0 = now - MC.offset;
+    else if (old_mode == MC_SCALED)
+        MC.m0 += mc_scale(now - MC.r0, MC.k);
+    MC.r0 = now;
+    if (MC.ramp_pos >= MC.ramp_steps) {
+        // Steady at an intermediate rate - nothing else changes
+        MC.timer.waketime = now + timer_from_us(MC_STEADY_US);
+        return SF_RESCHEDULE;
+    }
+    // Next rate on the linear ramp (k_step per tick plus a Bresenham
+    // remainder, so no division is needed here)
+    MC.ramp_pos++;
+    uint16_t k_old = old_mode == MC_NORMAL ? MC_K_ONE : MC.k;
+    int32_t k_new = (int32_t)k_old + MC.k_step;
+    MC.k_rem += MC.k_rem_step < 0 ? -MC.k_rem_step : MC.k_rem_step;
+    if (MC.k_rem >= MC.ramp_steps) {
+        MC.k_rem -= MC.ramp_steps;
+        k_new += MC.k_rem_step < 0 ? -1 : 1;
+    }
+    if (MC.ramp_pos >= MC.ramp_steps || k_new < 0 || k_new > MC_K_ONE)
+        k_new = MC.k_to;
+    uint16_t k = k_new;
+    if (k == 0) {
+        MC.mode = MC_HELD;
+        MC.k = 0;
+        mc_update_steppers(old_mode, MC_HELD, 1);
+        MC.active = 0;
+        return SF_DONE;
+    }
+    if (k >= MC_K_ONE) {
+        MC.mode = MC_NORMAL;
+        MC.k = MC_K_ONE;
+        MC.offset = MC.r0 - MC.m0;
+        mc_update_steppers(old_mode, MC_NORMAL, 1);
+        MC.active = 0;
+        return SF_DONE;
+    }
+    if (k < MC_K_MIN)
+        k = MC_K_MIN;
+    // Move pending steps only when k changed by more than 1/8 of itself
+    uint16_t dk = k > k_old ? k - k_old : k_old - k;
+    uint8_t resched = old_mode != MC_SCALED || dk > (k >> 3);
+    MC.k = k;
+    MC.f = resched ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
+    MC.mode = MC_SCALED;
+    if (resched)
+        mc_update_steppers(old_mode, MC_SCALED, 1);
+    MC.timer.waketime = now + timer_from_us(MC_TICK_US);
+    return SF_RESCHEDULE;
+}
+
+// Ramp the motion clock rate to k over ramp_ms milliseconds
+// (k=0 holds, k=MOTION_CLOCK_K_ONE resumes normal motion)
+void
+command_motion_clock_set_rate(uint32_t *args)
+{
+    uint16_t k_to = args[0], ramp_ms = args[1];
+    if (k_to > MC_K_ONE)
+        shutdown("Invalid motion clock rate");
+    uint8_t i;
+    struct stepper *s;
+    foreach_oid(i, s, command_config_stepper) {
+        if (!(s->flags & SF_OPTIMIZED_PATH))
+            shutdown("Motion clock needs optimized steppers");
+    }
+    irq_disable();
+    uint16_t k_now = MC.mode == MC_NORMAL ? MC_K_ONE : MC.k;
+    MC.k_to = k_to;
+    MC.ramp_steps = ramp_ms ? ramp_ms : 1;
+    MC.ramp_pos = 0;
+    int16_t span = (int16_t)k_to - (int16_t)k_now;
+    MC.k_step = span / (int16_t)MC.ramp_steps;
+    MC.k_rem_step = span % (int16_t)MC.ramp_steps;
+    MC.k_rem = 0;
+    if (k_to == k_now && MC.mode != MC_SCALED) {
+        // Already there
+        irq_enable();
+        return;
+    }
+    if (MC.active)
+        sched_del_timer(&MC.timer);
+    MC.timer.func = mc_event;
+    MC.timer.waketime = timer_read_time() + timer_from_us(100);
+    MC.active = 1;
+    sched_add_timer(&MC.timer);
+    irq_enable();
+}
+DECL_COMMAND(command_motion_clock_set_rate,
+             "motion_clock_set_rate k=%hu ramp_ms=%hu");
+
+void
+command_motion_clock_query(uint32_t *args)
+{
+    irq_disable();
+    uint32_t now = timer_read_time();
+    uint32_t mnow = mc_motion_now(now);
+    uint8_t mode = MC.mode;
+    uint16_t k = mode == MC_NORMAL ? MC_K_ONE : MC.k;
+    irq_enable();
+    sendf("motion_clock_state mode=%c k=%hu clock=%u mclock=%u"
+          , mode, k, now, mnow);
+}
+DECL_COMMAND_FLAGS(command_motion_clock_query, HF_IN_SHUTDOWN,
+                   "motion_clock_query");
+
+static void
+mc_reset(void)
+{
+    MC.mode = MC_NORMAL;
+    MC.k = MC_K_ONE;
+    MC.offset = 0;
+    MC.active = 0;
+}
+
+#else // !HAVE_AVR_OPTIMIZATION
+
+static uint32_t mc_motion_to_real(uint32_t m) { return m; }
+static uint32_t mc_offset(void) { return 0; }
+static uint_fast8_t mc_is_held(void) { return 0; }
+static void mc_reset(void) { }
+
+#endif
