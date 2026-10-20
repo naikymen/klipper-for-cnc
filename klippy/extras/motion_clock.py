@@ -25,6 +25,8 @@ MODE_NORMAL, MODE_SCALED, MODE_HELD = 0, 1, 2
 MODE_NAMES = {MODE_NORMAL: "normal", MODE_SCALED: "scaled", MODE_HELD: "held"}
 EVENT_UNDERRUN_HOLD = 1
 POLL_TIME = 0.050
+# Extra lead (beyond the hold ramp) required before arming the deadline
+ARM_MARGIN = 0.100
 
 class MotionClock:
     def __init__(self, config):
@@ -221,6 +223,13 @@ class MotionClock:
                 self._queue_synced(flush_time, self.set_deadline_cmd, [0, 0])
                 self.deadline_armed = False
             return
+        if not self.deadline_armed:
+            # Starting from idle, motion is primed only BUFFER_TIME_START
+            # ahead: arming now would put the trigger (deadline - ramp) in
+            # the past and hold at once.  Arm once the lead covers the ramp.
+            est = self.mcu.estimated_motion_time(self.reactor.monotonic())
+            if flush_time - est < self.deadline_ramp_ms / 1000. + ARM_MARGIN:
+                return
         self._queue_synced(flush_time, self.set_deadline_cmd,
                            [self._mclock32(flush_time), self.deadline_ramp_ms])
         self.deadline_armed = True
