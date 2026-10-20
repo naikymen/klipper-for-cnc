@@ -212,6 +212,8 @@ defs_serialqueue = """
     void serialqueue_get_stats(struct serialqueue *sq, char *buf, int len);
     int serialqueue_extract_old(struct serialqueue *sq, int sentq
         , struct pull_queue_message *q, int max);
+    void serialqueue_set_reqtime_delta(struct serialqueue *sq
+        , double delta);
 """
 
 defs_trdispatch = """

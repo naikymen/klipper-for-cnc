@@ -55,6 +55,8 @@ struct transmit_requests {
 };
 
 struct serialqueue {
+    // How long before its req_clock a message is transmitted (seconds)
+    double reqtime_delta;
     // Input reading
     struct pollreactor *pr;
     int serial_fd, serial_fd_type, client_id;
@@ -635,13 +637,13 @@ check_send_command(struct serialqueue *sq, int pending, double eventtime)
             &cq->ready.msg_queue, struct queue_message, node);
         uint64_t req_clock = qm->req_clock;
         double bgtime = pending ? idletime : sq->idle_time;
-        double bgoffset = MIN_REQTIME_DELTA + MIN_BACKGROUND_DELTA;
+        double bgoffset = sq->reqtime_delta + MIN_BACKGROUND_DELTA;
         if (req_clock == BACKGROUND_PRIORITY_CLOCK)
             req_clock = clock_from_time(&sq->ce, bgtime + bgoffset);
         if (req_clock < min_ready_clock)
             min_ready_clock = req_clock;
     }
-    uint64_t reqclock_delta = MIN_REQTIME_DELTA * sq->ce.est_freq;
+    uint64_t reqclock_delta = sq->reqtime_delta * sq->ce.est_freq;
     if (min_ready_clock <= ack_clock + reqclock_delta)
         return PR_NOW;
 
@@ -713,6 +715,7 @@ serialqueue_alloc(int serial_fd, char serial_fd_type, int client_id
     sq->serial_fd = serial_fd;
     sq->serial_fd_type = serial_fd_type;
     sq->client_id = client_id;
+    sq->reqtime_delta = MIN_REQTIME_DELTA;
     strncpy(sq->name, name, sizeof(sq->name));
     sq->name[sizeof(sq->name)-1] = '\0';
 
@@ -1093,4 +1096,14 @@ serialqueue_extract_old(struct serialqueue *sq, int sentq
         message_free(qm);
     }
     return pos;
+}
+
+// Set how long before its req_clock a message is transmitted (default
+// MIN_REQTIME_DELTA).  A larger value keeps more steps queued on the MCU.
+void __visible
+serialqueue_set_reqtime_delta(struct serialqueue *sq, double delta)
+{
+    pthread_mutex_lock(&sq->lock);
+    sq->reqtime_delta = delta;
+    pthread_mutex_unlock(&sq->lock);
 }

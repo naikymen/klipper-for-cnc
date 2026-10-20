@@ -49,6 +49,7 @@ void serialqueue_set_clock_est(struct serialqueue *sq, double est_freq
                                , double conv_time, uint64_t conv_clock);
 void serialqueue_get_clock_est(struct serialqueue *sq
                                , struct clock_estimate *ce);
+void serialqueue_set_reqtime_delta(struct serialqueue *sq, double delta);
 void serialqueue_get_stats(struct serialqueue *sq, char *buf, int len);
 int serialqueue_extract_old(struct serialqueue *sq, int sentq
                             , struct pull_queue_message *q, int max);
