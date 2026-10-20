@@ -695,10 +695,13 @@ mc_event(struct timer *t)
     uint16_t dk = k > k_old ? k - k_old : k_old - k;
     uint8_t big_step = old_mode != MC_SCALED || dk > (k >> 3);
     MC.k = k;
-    MC.f = big_step ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
+    uint8_t ramp_end = MC.ramp_pos >= MC.ramp_steps;
+    // Exact 1/k on big steps and at the end of a ramp (a steady override
+    // must run at exactly its rate); Newton refinement otherwise
+    MC.f = big_step || ramp_end ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
     MC.mode = MC_SCALED;
     mc_scaled = 1;
-    if (big_step || MC.ramp_pos >= MC.ramp_steps)
+    if (big_step || ramp_end)
         mc_update_steppers(old_mode, MC_SCALED, 1);
     else
         mc_retime_drifted();
@@ -781,9 +784,18 @@ mc_deadline_event(struct timer *t)
     uint32_t now = t->waketime;
     uint32_t trigger = mc_deadline_trigger();
     if ((int32_t)(mc_motion_now(now) - trigger) < 0) {
-        // Not there yet (the motion clock was slowed) - check again
-        t->waketime = (MC.mode == MC_NORMAL ? trigger + MC.offset
-                       : now + timer_from_us(MC_TICK_US));
+        // Not there yet (the motion clock is slowed) - check again when
+        // the current mapping says the trigger is reached (at most one
+        // ramp tick later, since the mapping may change)
+        uint32_t w = (MC.mode == MC_NORMAL ? trigger + MC.offset
+                      : mc_motion_to_real(trigger));
+        uint32_t min_w = now + timer_from_us(MC_TICK_US);
+        uint8_t ramping = MC.active && MC.ramp_pos < MC.ramp_steps;
+        if (ramping && timer_is_before(min_w, w))
+            w = min_w;      // the mapping changes every tick
+        else if (timer_is_before(w, now + MC_MIN_LEAD))
+            w = now + MC_MIN_LEAD;
+        t->waketime = w;
         return SF_RESCHEDULE;
     }
     // Underrun: no newer deadline arrived in time - hold
