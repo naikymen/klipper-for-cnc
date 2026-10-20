@@ -44,6 +44,7 @@ struct stepper {
     uint32_t count;
     uint32_t next_step_time, step_pulse_ticks;
     uint32_t motion_time; // next step in motion clock time (while scaled)
+    uint16_t mc_f;        // motion clock 1/k its pending step was timed with
     struct gpio_out step_pin, dir_pin;
     uint32_t position;
     struct move_queue_head mq;
@@ -61,7 +62,18 @@ enum {
 };
 
 static __always_inline uint32_t mc_motion_to_real(uint32_t m);
+// Real time of a stepper's next step (s->motion_time) while scaled.  A step
+// is never scheduled before the stepper's previous step: if it fell behind
+// the mapping it catches up from its last step instead of being scheduled
+// in the past (which the timer code treats as an overrun).
+#define AVR_STEP_TICKS 40 // minimum instructions between step gpio pulses
+#define mc_step_waketime(s) ({                                          \
+    (s)->mc_f = mc_current_f();                                         \
+    uint32_t _w = mc_motion_to_real((s)->motion_time);                  \
+    uint32_t _min = (s)->time.waketime + AVR_STEP_TICKS;                \
+    timer_is_before(_w, _min) ? _min : _w; })
 static uint8_t mc_scaled; // motion clock scaled or held (steps use motion time)
+static __always_inline uint16_t mc_current_f(void);
 static uint32_t mc_offset(void);
 static uint_fast8_t mc_is_held(void);
 static void mc_reset(void);
@@ -100,7 +112,7 @@ stepper_load_next(struct stepper *s)
         if (unlikely(mc_scaled)) {
             // Motion clock is scaled - track motion time, convert to real
             s->motion_time += move_interval;
-            s->time.waketime = mc_motion_to_real(s->motion_time);
+            s->time.waketime = mc_step_waketime(s);
         } else {
             s->time.waketime += move_interval;
         }
@@ -164,7 +176,6 @@ stepper_event_edge(struct timer *t)
     return stepper_load_next(s);
 }
 
-#define AVR_STEP_TICKS 40 // minimum instructions between step gpio pulses
 #if HAVE_AVR_OPTIMIZATION
  DECL_CONSTANT("STEPPER_OPTIMIZED_UNSTEP", AVR_STEP_TICKS);
 #endif
@@ -184,7 +195,7 @@ stepper_event_scaled(struct stepper *s)
         s->motion_time += s->interval;
         if (s->flags & SF_HAVE_ADD)
             s->interval += s->add;
-        s->time.waketime = mc_motion_to_real(s->motion_time);
+        s->time.waketime = mc_step_waketime(s);
         gpio_out_toggle_noirq(s->step_pin);
         return SF_RESCHEDULE;
     }
@@ -485,6 +496,12 @@ static struct {
     uint8_t mode, active;
 } MC;
 
+static __always_inline uint16_t
+mc_current_f(void)
+{
+    return MC.f;
+}
+
 static uint32_t
 mc_offset(void)
 {
@@ -558,7 +575,29 @@ mc_reschedule(struct stepper *s)
     if (timer_is_before(w, min_w))
         w = min_w;
     s->time.waketime = w;
+    s->mc_f = MC.f;
     sched_add_timer(&s->time);
+}
+
+// Move the pending steps whose timing has drifted: 1/k changed by more than
+// 1/8 since they were timed.  A pending step can wait through many ticks,
+// so the drift is measured from its own scheduling.  Steppers that step
+// often re-time at every step and rarely need this.
+static void
+mc_retime_drifted(void)
+{
+    uint8_t i;
+    struct stepper *s;
+    foreach_oid(i, s, command_config_stepper) {
+        if (!s->count || !(s->flags & SF_OPTIMIZED_PATH))
+            continue;
+        uint16_t sf = s->mc_f;
+        uint16_t df = MC.f > sf ? MC.f - sf : sf - MC.f;
+        if (df > (sf >> 3)) {
+            sched_del_timer(&s->time);
+            mc_reschedule(s);
+        }
+    }
 }
 
 // Apply a new mode / mapping to all steppers.  Pending steps are only
@@ -650,15 +689,19 @@ mc_event(struct timer *t)
     }
     if (k < MC_K_MIN)
         k = MC_K_MIN;
-    // Move pending steps only when k changed by more than 1/8 of itself
+    // All pending steps are re-timed on mode changes, large steps of k and
+    // at the end of a ramp; otherwise only those that drifted (bounding a
+    // pending step's error to 1/8 of its wait)
     uint16_t dk = k > k_old ? k - k_old : k_old - k;
-    uint8_t resched = old_mode != MC_SCALED || dk > (k >> 3);
+    uint8_t big_step = old_mode != MC_SCALED || dk > (k >> 3);
     MC.k = k;
-    MC.f = resched ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
+    MC.f = big_step ? (1UL << 22) / k : mc_refine_inverse(k, MC.f);
     MC.mode = MC_SCALED;
     mc_scaled = 1;
-    if (resched)
+    if (big_step || MC.ramp_pos >= MC.ramp_steps)
         mc_update_steppers(old_mode, MC_SCALED, 1);
+    else
+        mc_retime_drifted();
     MC.timer.waketime = now + timer_from_us(MC_TICK_US);
     return SF_RESCHEDULE;
 }
