@@ -151,7 +151,7 @@ config SERIAL_PORT
     default 0
 
 config SIMULAVR
-    depends on MACH_atmega168 || MACH_atmega328 || MACH_atmega328p || MACH_atmega644p || MACH_atmega1284p
+    depends on MACH_atmega168 || MACH_atmega328 || MACH_atmega328p || MACH_atmega644p || MACH_atmega1284p || MACH_atmega1280 || MACH_atmega2560
     bool "Compile for simulavr software emulation" if LOW_LEVEL_OPTIONS
     default n
     help

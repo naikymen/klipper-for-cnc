@@ -209,16 +209,19 @@ def main():
     # Setup terminal
     io = TerminalIO()
 
+    # UART0 is on PE0/PE1 on the atmega1280/2560 and on PD0/PD1 elsewhere
+    uart_port = "E" if proc in ("atmega1280", "atmega2560") else "D"
+
     # Setup rx pin
     rxpin = SerialRxPin(baud, io)
     net = pysimulavr.Net()
     net.Add(rxpin)
-    net.Add(dev.GetPin("D1"))
+    net.Add(dev.GetPin(uart_port + "1"))
 
     # Setup tx pin
     txpin = SerialTxPin(baud, io)
     net2 = pysimulavr.Net()
-    net2.Add(dev.GetPin("D0"))
+    net2.Add(dev.GetPin(uart_port + "0"))
     net2.Add(txpin)
 
     # Display start banner
